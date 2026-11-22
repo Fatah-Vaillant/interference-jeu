@@ -1,0 +1,20 @@
+{
+  "name": "Interférence",
+  "short_name": "Interférence",
+  "description": "Shoot'em up vertical : douze univers, des boss, des compétences à combiner. Sans publicité, sans achat, jouable hors ligne.",
+  "lang": "fr",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
+  "orientation": "portrait",
+  "background_color": "#0A0A0B",
+  "theme_color": "#0A0A0B",
+  "categories": ["games"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
