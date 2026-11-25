@@ -113,11 +113,13 @@ const Art = (() => {
 
   /* ---------------- PROJECTILES & OBJETS (sans ombre) ---------------- */
   const glowy = (col, r) => c => halo(c, 0, 0, r, col, 0.7);
-  DEF.p_imp = { w: 12, h: 34, sh: 'none', pad: 4, draw(c) { halo(c, 0, 0, 12, AMBER, 0.5); F(c, RR(-1.8, -12, 3.6, 24, 1.8), '#FFF4E4', [-2, -12, 2, 12], { rim: false }); } };
-  DEF.p_plasma = { w: 30, h: 30, sh: 'none', pad: 4, draw(c) { halo(c, 0, 0, 15, '#8FD3E6', 0.75); sphere(c, 0, 0, 6, 'pale'); } };
+  // tirs du joueur : tons FROIDS et translucides (retours n° 2 : on les confondait avec les tirs ennemis, chauds)
+  const COOL = '#6FDCF0';
+  DEF.p_imp = { w: 12, h: 34, sh: 'none', pad: 4, draw(c) { halo(c, 0, 0, 12, COOL, 0.42); F(c, RR(-1.7, -12, 3.4, 24, 1.7), '#E6FBFF', [-2, -12, 2, 12], { rim: false, a: 0.82 }); } };
+  DEF.p_plasma = { w: 30, h: 30, sh: 'none', pad: 4, draw(c) { halo(c, 0, 0, 15, '#5FA2FF', 0.7); c.globalAlpha = 0.85; sphere(c, 0, 0, 6, 'pale'); c.globalAlpha = 1; } };
   DEF.p_missile = { w: 12, h: 26, sh: 'none', pad: 3, draw(c) { sym(c, () => F(c, 'M2 4L6 10L2 9Z', '#C8CCD2', [2, 4, 6, 10], { rim: false })); F(c, 'M0 -12C2 -10 2.5 -6 2.5 -2L2.5 10L-2.5 10L-2.5 -2C-2.5 -6 -2 -10 0 -12Z', 'alu', [-2.5, -12, 2.5, 10], { rim: false }); F(c, RR(-2.5, -4, 5, 2.4, 1), SEAM, [-2.5, -4, 2.5, -1.6], { rim: false }); } };
-  DEF.p_blade = { w: 40, h: 60, sh: 'none', pad: 6, draw(c) { halo(c, 0, 0, 30, AMBER, 0.35); F(c, 'M0 -28C10 -14 12 8 0 28C4 8 2 -12 -10 -24C-6 -26 -3 -28 0 -28Z', 'wing', [-10, -28, 12, 28], { rim: 0.6 }); } };
-  DEF.p_shard = { w: 10, h: 18, sh: 'none', pad: 3, draw(c) { halo(c, 0, 0, 9, AMBER, 0.5); F(c, 'M0 -8L3 0L0 8L-3 0Z', '#FFE6C8', [-3, -8, 3, 8], { rim: false }); } };
+  DEF.p_blade = { w: 40, h: 60, sh: 'none', pad: 6, draw(c) { halo(c, 0, 0, 30, COOL, 0.35); F(c, 'M0 -28C10 -14 12 8 0 28C4 8 2 -12 -10 -24C-6 -26 -3 -28 0 -28Z', 'wing', [-10, -28, 12, 28], { rim: 0.6 }); } };
+  DEF.p_shard = { w: 10, h: 18, sh: 'none', pad: 3, draw(c) { halo(c, 0, 0, 9, COOL, 0.45); F(c, 'M0 -8L3 0L0 8L-3 0Z', '#DDF6FF', [-3, -8, 3, 8], { rim: false, a: 0.85 }); } };
   // drone d'appui : petit chasseur effilé (jamais une sphère : deux drones côte à côte feraient des yeux)
   DEF.p_drone = { w: 32, h: 50, sh: 'drop', draw(c) {
     sym(c, () => { F(c, 'M3 -2L15 11L15 14.5L3 11Z', 'wing', [3, -2, 15, 15], { rim: 0.5, edge: 0.5 }); F(c, 'M2.6 11L8 19L7.4 21.5L2.6 18Z', 'gun', [2.6, 11, 8, 21.5], { rim: false }); });
@@ -126,22 +128,22 @@ const Art = (() => {
     L(c, 'M0 0L0 15', AMBER, 1.3);
   } };
 
-  // tirs ennemis : toujours en tons chauds (halo rouge-orangé, cœur crème) pour ne jamais ressembler à l'XP (losanges verts)
+  // tirs ennemis : toujours CHAUDS et vifs (halo rouge-orangé, cœur orange) cernés de sombre ; ceux du joueur sont froids et translucides
   const HOT = '#FF6A3A', HOT2 = '#FF9A48';
-  DEF.b_packet = { w: 14, h: 26, sh: 'none', pad: 4, draw(c) { halo(c, 0, 0, 12, HOT, 0.55); F(c, RR(-2.4, -8, 4.8, 16, 2.4), '#FFE4C8', [-2, -8, 2, 8], { rim: false }); } };
-  DEF.b_cog = { w: 16, h: 16, sh: 'none', pad: 3, draw(c) { halo(c, 0, 0, 10, HOT2, 0.5); F(c, GEAR(7, 7, 0.28) + C(0, 0, 2.2), 'brass', [-7, -7, 7, 7], { rule: 'evenodd', rim: false }); } };
-  DEF.b_ball = { w: 16, h: 16, sh: 'none', pad: 3, draw(c) { halo(c, 0, 0, 11, HOT, 0.7); sphere(c, 0, 0, 5.6, 'iron'); c.strokeStyle = '#FF8A48'; c.lineWidth = 1.5; c.beginPath(); c.arc(0, 0, 6.2, 0, TAU); c.stroke(); } };
-  DEF.b_bubble = { w: 18, h: 18, sh: 'none', pad: 3, draw(c) { halo(c, 0, 0, 10, HOT, 0.35); c.strokeStyle = 'rgba(255,190,140,.95)'; c.lineWidth = 1.8; c.beginPath(); c.arc(0, 0, 7, 0, TAU); c.stroke(); c.fillStyle = 'rgba(255,120,60,.3)'; c.fill(); c.fillStyle = 'rgba(255,255,255,.8)'; c.beginPath(); c.arc(-2.5, -2.5, 1.6, 0, TAU); c.fill(); } };
-  DEF.b_torp = { w: 10, h: 30, sh: 'none', pad: 4, draw(c) { halo(c, 0, 10, 7, HOT, 0.55); F(c, 'M0 13C2.5 11 3 6 3 2L3 -12L-3 -12L-3 2C-3 6 -2.5 11 0 13Z', 'brass', [-3, -12, 3, 13], { rim: false }); L(c, 'M-4 -13L4 -13', '#C29A55', 1.6); } };
-  DEF.b_tracer = { w: 12, h: 28, sh: 'none', pad: 4, draw(c) { halo(c, 0, 0, 10, HOT2, 0.6); F(c, RR(-1.6, -9, 3.2, 18, 1.6), '#FFF0CC', [-2, -9, 2, 9], { rim: false }); } };
-  DEF.b_bomb = { w: 14, h: 26, sh: 'none', pad: 4, draw(c) { halo(c, 0, 4, 9, HOT, 0.45); sym(c, () => F(c, 'M2 -10L6 -14L6 -7L2 -6Z', '#3A372C', [2, -14, 6, -6], { rim: false })); F(c, 'M0 11C4 8 5 3 5 -1C5 -6 3 -9 0 -9C-3 -9 -5 -6 -5 -1C-5 3 -4 8 0 11Z', 'olive', [-5, -9, 5, 11], { rim: false }); } };
-  DEF.b_hail = { w: 14, h: 14, sh: 'none', pad: 3, draw(c) { halo(c, 0, 0, 9, HOT, 0.55); F(c, POLY(6, 5, 0.3), '#FFE6D2', [-5, -5, 5, 5], { rim: false }); } };
-  DEF.b_shell = { w: 10, h: 20, sh: 'none', pad: 3, draw(c) { halo(c, 0, 2, 9, HOT, 0.5); F(c, 'M0 8C2.4 6 2.6 3 2.6 0L2.6 -7L-2.6 -7L-2.6 0C-2.6 3 -2.4 6 0 8Z', '#4A4C52', [-3, -7, 3, 8], { rim: false }); F(c, C(0, 5, 1.6), '#F0C88A', [-2, 3, 2, 7], { rim: false }); } };
-  DEF.b_pellet = { w: 16, h: 16, sh: 'none', pad: 3, draw(c) { halo(c, 0, 0, 10, HOT, 0.65); F(c, C(0, 0, 3.2), '#FFEADC', [-3, -3, 3, 3], { rim: false }); } };
-  DEF.b_shard = { w: 12, h: 14, sh: 'none', pad: 4, draw(c) { halo(c, 0, 0, 9, HOT, 0.6); F(c, 'M0 -6L5 4L-4 5Z', '#FFB070', [-5, -6, 5, 5], { rim: false }); } };
-  DEF.b_laser = { w: 12, h: 30, sh: 'none', pad: 4, draw(c) { halo(c, 0, 0, 11, SEAM, 0.5); F(c, RR(-1.8, -10, 3.6, 20, 1.8), '#FFE2DC', [-2, -10, 2, 10], { rim: false }); } };
-  DEF.b_beamlet = { w: 12, h: 32, sh: 'none', pad: 4, draw(c) { halo(c, 0, 0, 12, '#FF5A48', 0.6); F(c, RR(-1.8, -11, 3.6, 22, 1.8), '#FFE6E0', [-2, -11, 2, 11], { rim: false }); } };
-  DEF.b_tile = { w: 14, h: 18, sh: 'none', pad: 3, draw(c) { halo(c, 0, 0, 10, HOT2, 0.5); F(c, 'M0 -7L4.5 0L0 7L-4.5 0Z', 'gold', [-4.5, -7, 4.5, 7], { rim: false }); } };
+  DEF.b_packet = { w: 14, h: 26, sh: 'none', pad: 4, draw(c) { halo(c, 0, 0, 12, HOT, 0.55); F(c, RR(-2.4, -8, 4.8, 16, 2.4), '#FFB547', [-2, -8, 2, 8], { rim: false, edge: 0.85, ew: 1.6 }); } };
+  DEF.b_cog = { w: 16, h: 16, sh: 'none', pad: 3, draw(c) { halo(c, 0, 0, 10, HOT2, 0.5); F(c, GEAR(7, 7, 0.28) + C(0, 0, 2.2), 'brass', [-7, -7, 7, 7], { rule: 'evenodd', rim: false, edge: 0.85, ew: 1.6 }); } };
+  DEF.b_ball = { w: 16, h: 16, sh: 'none', pad: 3, draw(c) { halo(c, 0, 0, 11, HOT, 0.7); sphere(c, 0, 0, 5.6, 'iron'); c.strokeStyle = 'rgba(20,8,4,.9)'; c.lineWidth = 2.2; c.beginPath(); c.arc(0, 0, 7.8, 0, TAU); c.stroke(); c.strokeStyle = '#FF7A34'; c.lineWidth = 1.8; c.beginPath(); c.arc(0, 0, 6.2, 0, TAU); c.stroke(); } };
+  DEF.b_bubble = { w: 18, h: 18, sh: 'none', pad: 3, draw(c) { halo(c, 0, 0, 10, HOT, 0.35); c.strokeStyle = 'rgba(20,8,4,.85)'; c.lineWidth = 2; c.beginPath(); c.arc(0, 0, 8.4, 0, TAU); c.stroke(); c.strokeStyle = '#FF8A44'; c.lineWidth = 2; c.beginPath(); c.arc(0, 0, 7, 0, TAU); c.stroke(); c.fillStyle = 'rgba(255,110,50,.38)'; c.fill(); c.fillStyle = 'rgba(255,255,255,.8)'; c.beginPath(); c.arc(-2.5, -2.5, 1.6, 0, TAU); c.fill(); } };
+  DEF.b_torp = { w: 10, h: 30, sh: 'none', pad: 4, draw(c) { halo(c, 0, 10, 7, HOT, 0.55); F(c, 'M0 13C2.5 11 3 6 3 2L3 -12L-3 -12L-3 2C-3 6 -2.5 11 0 13Z', 'brass', [-3, -12, 3, 13], { rim: false, edge: 0.85, ew: 1.6 }); L(c, 'M-4 -13L4 -13', '#C29A55', 1.6); } };
+  DEF.b_tracer = { w: 12, h: 28, sh: 'none', pad: 4, draw(c) { halo(c, 0, 0, 10, HOT2, 0.6); F(c, RR(-1.6, -9, 3.2, 18, 1.6), '#FFC94F', [-2, -9, 2, 9], { rim: false, edge: 0.85, ew: 1.6 }); } };
+  DEF.b_bomb = { w: 14, h: 26, sh: 'none', pad: 4, draw(c) { halo(c, 0, 4, 9, HOT, 0.45); sym(c, () => F(c, 'M2 -10L6 -14L6 -7L2 -6Z', '#3A372C', [2, -14, 6, -6], { rim: false })); F(c, 'M0 11C4 8 5 3 5 -1C5 -6 3 -9 0 -9C-3 -9 -5 -6 -5 -1C-5 3 -4 8 0 11Z', 'olive', [-5, -9, 5, 11], { rim: false, edge: 0.85, ew: 1.6 }); } };
+  DEF.b_hail = { w: 14, h: 14, sh: 'none', pad: 3, draw(c) { halo(c, 0, 0, 9, HOT, 0.55); F(c, POLY(6, 5, 0.3), '#FFAE55', [-5, -5, 5, 5], { rim: false, edge: 0.85, ew: 1.6 }); } };
+  DEF.b_shell = { w: 10, h: 20, sh: 'none', pad: 3, draw(c) { halo(c, 0, 2, 9, HOT, 0.5); F(c, 'M0 8C2.4 6 2.6 3 2.6 0L2.6 -7L-2.6 -7L-2.6 0C-2.6 3 -2.4 6 0 8Z', '#4A4C52', [-3, -7, 3, 8], { rim: false, edge: 0.85, ew: 1.6 }); F(c, C(0, 5, 1.6), '#F0C88A', [-2, 3, 2, 7], { rim: false }); } };
+  DEF.b_pellet = { w: 16, h: 16, sh: 'none', pad: 3, draw(c) { halo(c, 0, 0, 10, HOT, 0.65); F(c, C(0, 0, 3.2), '#FFB044', [-3, -3, 3, 3], { rim: false, edge: 0.85, ew: 1.6 }); } };
+  DEF.b_shard = { w: 12, h: 14, sh: 'none', pad: 4, draw(c) { halo(c, 0, 0, 9, HOT, 0.6); F(c, 'M0 -6L5 4L-4 5Z', '#FF9A48', [-5, -6, 5, 5], { rim: false, edge: 0.85, ew: 1.6 }); } };
+  DEF.b_laser = { w: 12, h: 30, sh: 'none', pad: 4, draw(c) { halo(c, 0, 0, 11, '#FF4A3A', 0.6); F(c, RR(-1.8, -10, 3.6, 20, 1.8), '#FF9A55', [-2, -10, 2, 10], { rim: false, edge: 0.85, ew: 1.6 }); } };
+  DEF.b_beamlet = { w: 12, h: 32, sh: 'none', pad: 4, draw(c) { halo(c, 0, 0, 12, '#FF5A48', 0.6); F(c, RR(-1.8, -11, 3.6, 22, 1.8), '#FFA45A', [-2, -11, 2, 11], { rim: false, edge: 0.85, ew: 1.6 }); } };
+  DEF.b_tile = { w: 14, h: 18, sh: 'none', pad: 3, draw(c) { halo(c, 0, 0, 10, HOT2, 0.5); F(c, 'M0 -7L4.5 0L0 7L-4.5 0Z', 'gold', [-4.5, -7, 4.5, 7], { rim: false, edge: 0.85, ew: 1.6 }); } };
   DEF.b_glitch = { w: 14, h: 14, sh: 'none', pad: 4, draw(c) { halo(c, 0, 0, 9, '#FF4A4A', 0.5); F(c, RR(-3, -5, 8, 8, 0), 'rgba(255,255,255,.85)', [-3, -5, 5, 3], { rim: false }); F(c, RR(-5, -3, 8, 8, 0), '#050506', [-5, -3, 3, 5], { rim: false }); } };
   // parasite du Bruit (idée « Le Bruit attaque l'interface ») : amas de blocs décalés en couleurs de brouillage, griffes en coin
   DEF.parasite = { w: 50, h: 36, sh: 'none', pad: 6, draw(c) {
@@ -154,7 +156,7 @@ const Art = (() => {
   } };
   // 1902 : étoile de carton (contour noir épais, lisible en noir et blanc)
   DEF.b_star = { w: 26, h: 26, sh: 'none', pad: 5, draw(c) { halo(c, 0, 0, 15, '#FFFFFF', 0.55); c.lineJoin = 'round'; c.strokeStyle = '#050505'; c.lineWidth = 3.2; c.stroke(path(STAR(5, 10, 4.4))); F(c, STAR(5, 10, 4.4), '#FFFFFF', [-10, -10, 10, 10], { rim: false }); } };
-  DEF.b_spark = { w: 14, h: 14, sh: 'none', pad: 3, draw(c) { halo(c, 0, 0, 9, HOT2, 0.75); F(c, C(0, 0, 2.4), '#FFF4E0', [-2, -2, 2, 2], { rim: false }); } };
+  DEF.b_spark = { w: 14, h: 14, sh: 'none', pad: 3, draw(c) { halo(c, 0, 0, 9, HOT2, 0.75); F(c, C(0, 0, 2.4), '#FFC24A', [-2, -2, 2, 2], { rim: false, edge: 0.85, ew: 1.6 }); } };
 
   // objets à ramasser
   DEF.pk_cr = { w: 18, h: 22, sh: 'none', pad: 4, draw(c) { halo(c, 0, 0, 13, GOLDL, 0.35); F(c, 'M0 -9L7 0L0 9L-7 0Z', 'gold', [-7, -9, 7, 9], { rim: 0.7 }); L(c, 'M-3.5 -4.5L0 0L3.5 -4.5', 'rgba(255,255,255,.55)', 0.8); } };

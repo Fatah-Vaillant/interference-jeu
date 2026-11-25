@@ -7,7 +7,7 @@
    Les valeurs propres à un contenu (PV d'un archétype, stats d'un vaisseau, paliers de l'Infini) restent dans js/data.js.
    ========================================================= */
 const CONFIG = {
-  version: '0.17.0', // à augmenter à chaque version publiée (voir CHANGELOG.md, étiquette git vX.Y.Z)
+  version: '0.18.0', // à augmenter à chaque version publiée (voir CHANGELOG.md, étiquette git vX.Y.Z)
 
   features: {
     devMenu: true, // menu développeur disponible (reste caché : 7 appuis sur le numéro de version dans Profil)
@@ -17,7 +17,7 @@ const CONFIG = {
     accord: true,     // Accord de fréquence : 3 ennemis du même type d'affilée → résonance (tirs perçants, dégâts +25 %, 4 s)
     noiseHud: true,   // Le Bruit attaque l'interface : un parasite brouille le HUD tant qu'on ne l'abat pas (bonus de crédits)
     radioDial: true,  // Molette radio : en Infini, choisir la fréquence suivante parmi 3 (avec un bonus chacune)
-    convoy: true,     // Convoi à escorter : mission 3 des univers 02, 05, 08, 11 et une vague sur 8 en Infini
+    convoy: true,     // Convoi à escorter : mission 3 des univers 02, 05, 08, 11 (retiré de l'Infini : les cargos y mouraient toujours)
     bossLearn: true,  // Boss qui apprend : il cible ton couloir préféré, reprend les attaques qui te touchent, s'en souvient
   },
 
@@ -41,6 +41,35 @@ const CONFIG = {
     kamiMax: 2,         // kamikazes au plus par formation (+1 tous les 40 de d)
   },
 
+  // Compétences (retours n° 2, 25/11 : à la vague 10-20 de l'Infini on gagnait immobile, 6 orbes et une pluie de tirs)
+  skills: {
+    maxActive: 6,   // compétences différentes au plus ; une fois plein, le choix ne propose que de monter celles déjà prises
+    decay: 0.72,    // gains décroissants : le niveau n apporte add × 0,72^(n−1) (niveau 1 : 100 %, niveau 5 : 27 %)
+    orbsMax: 3,     // orbes en orbite au plus
+  },
+  // Expérience (retours n° 2 : un choix toutes les 2-3 s au début déroutait) : gagnée à la destruction, plus de points qui tombent.
+  // Le choix de compétence n'arrive qu'entre deux vagues, un seul par pause ; seuil du niveau l : first + step × (l − 1) + grow × (l − 1)²
+  xp: { first: 14, step: 10, grow: 1.2 },
+  // Infini indexé sur la puissance réelle du joueur (dégâts par seconde mesurés en combat)
+  // résistance : un ennemi de base doit encaisser au moins dps × ttk(n) avec ttk(n) = ttk0 + ttkN × n secondes de tir parfait
+  // densité : quand cette résistance dépasse celle de la difficulté seule, rangs, salves, escadrilles et pression montent ;
+  // les deux valeurs ne redescendent jamais (aucune vague plus facile que la précédente)
+  infPower: { ttk0: 0.08, ttkN: 0.0025, bossT0: 14, bossTN: 0.5, densMax: 2 }, // réglé pour ne mordre que sur les constructions fortes (joueur moyen : ≈ la difficulté seule)
+  // As (ennemi d'élite qui esquive comme un joueur) : rare, nom affiché, belle récompense
+  elite: {
+    infFrom: 4, infGap: 5,   // Infini : à partir de la vague 4, au plus une vague sur 5 (et au moins une sur 8)
+    missionM: 3,             // campagne : 4e mission de chaque univers à partir du 02
+    dur: 16,                 // secondes avant qu'il ne s'échappe (sans récompense)
+    hpT: 4.5, hpMin: 26,     // PV : au moins dps × 4,5 s (et 26 × résistance de base)
+    hitCap: 0.07,            // un coup ne retire jamais plus de 7 % de ses PV (il reste un duel, même face à une construction forte)
+    stamina: 3, regen: 0.7,  // esquives d'affilée, rechargées à 0,7 par seconde
+    cr: 40, crD: 1.5,        // crédits : (40 + d × 1,5) × bonus de crédits
+  },
+
+  // Cubes d'arme (retours n° 2 : personne ne comprenait) : jamais aimantés, ils descendent lentement ; on les prend en
+  // passant dessus (touch, px) ou en les touchant du doigt (tapR, px) ; une bulle explique les premiers (tips)
+  cube: { fall: 55, touch: 40, tapR: 46, tips: 2 },
+
   // Onde et Ultime : vitesse de charge (retour du 22/11 : trop rapides, surtout en Infini)
   // bouclier : une charge revient après ce temps sans être touché (s)
   shield: { regen: 10, regenInf: 22 },
@@ -53,7 +82,8 @@ const CONFIG = {
   },
 
   // Déplacement au doigt : le vaisseau rattrape le doigt (réactivité par seconde), vitesse plafonnée à speed × pointerMax
-  move: { pointerK: 24, pointerMax: 4.5, sens: [1, 1.3, 1.6, 2] }, // sensibilité réglable (Profil, pause) : déplacement du doigt × sens
+  // top : marge (unités jeu) entre le bas du HUD et le nez du vaisseau ; topMin : limite la plus haute, retours n° 2 : le vaisseau monte jusque sous le HUD (plus de mur invisible à mi-écran)
+  move: { pointerK: 24, pointerMax: 4.5, sens: [1, 1.3, 1.6, 2], top: 10, topMin: 150 }, // sensibilité réglable (Profil, pause) : déplacement du doigt × sens
 
   // Prix fixes en crédits (aucun hasard payant). −1 = ne s'achète pas (débloqué en jeu)
   prices: {
@@ -77,6 +107,7 @@ const CONFIG = {
     perfect: 0.3,       // bonus « parfait » (3 étoiles sans coup reçu) : +30 % de la récompense
     inf: 20,            // fin d'infini : vagues × (20 + palier × 6)
     infTier: 6,
+    infPal: 200,        // Infini : palier franchi (boss des vagues 10, 20, 30…) : 200 × numéro du palier × multiplicateur de crédits
     squad: 12,          // escadrille entière abattue : 12 + d
     creditUpg: 0.15,    // amélioration « crédits » : +15 % par niveau
   },

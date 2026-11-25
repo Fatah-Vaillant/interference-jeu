@@ -5,7 +5,7 @@
    souffle filtré, clics et glissements courts uniquement.
    ========================================================= */
 const SFX = (() => {
-  let ctx = null, master = null, comp = null, nbuf = null, vol = 0.7;
+  let ctx = null, master = null, comp = null, nbuf = null, vol = 0.7, ebus = null, dest = null;
   const last = {};
 
   function init() {
@@ -16,6 +16,8 @@ const SFX = (() => {
       comp.threshold.value = -18; comp.ratio.value = 6; comp.attack.value = 0.003; comp.release.value = 0.12;
       master = ctx.createGain(); master.gain.value = vol;
       master.connect(comp).connect(ctx.destination);
+      // tirs ennemis sur un bus atténué : en Infini ils sont des dizaines et couvraient les armes du joueur (retours n° 2 : l'arc semblait muet)
+      ebus = ctx.createGain(); ebus.gain.value = 0.5; ebus.connect(master); dest = master;
       nbuf = ctx.createBuffer(1, ctx.sampleRate * 1.5, ctx.sampleRate);
       const d = nbuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
     } catch (e) { ctx = null; }
@@ -34,7 +36,7 @@ const SFX = (() => {
     const fl = ctx.createBiquadFilter(); fl.type = type; fl.frequency.value = f; fl.Q.value = q;
     if (fTo) fl.frequency.exponentialRampToValueAtTime(fTo, ctx.currentTime + dur);
     const g = ctx.createGain(); env(g, a, dur, att);
-    s.connect(fl).connect(g).connect(master);
+    s.connect(fl).connect(g).connect(dest || master);
     s.start(0, Math.random() * 0.5); s.stop(ctx.currentTime + dur + 0.05);
   }
   // glissement court (jamais une suite de notes)
@@ -43,7 +45,7 @@ const SFX = (() => {
     o.frequency.setValueAtTime(f0, ctx.currentTime);
     o.frequency.exponentialRampToValueAtTime(Math.max(f1, 20), ctx.currentTime + dur);
     const g = ctx.createGain(); env(g, a, dur, att);
-    o.connect(g).connect(master); o.start(); o.stop(ctx.currentTime + dur + 0.05);
+    o.connect(g).connect(dest || master); o.start(); o.stop(ctx.currentTime + dur + 0.05);
   }
 
   const lib = {
@@ -57,7 +59,8 @@ const SFX = (() => {
     // armes du joueur
     imp:      () => S(1600, 520, 0.045, 0.028, 'square'),
     plasma:   () => { N(0.10, 420, 1.2, 0.09, 'lowpass', 160); S(260, 120, 0.09, 0.05, 'sine'); },
-    arc:      () => N(0.06, 5200, 1.5, 0.06, 'highpass', 2600),
+    // arc : le grésillement aigu apprécié, plus présent (corps en bande moyenne) pour rester audible sous les tirs ennemis
+    arc:      () => { N(0.06, 5200, 1.5, 0.10, 'highpass', 2600); N(0.05, 2300, 2.2, 0.07, 'bandpass', 1400); },
     rail:     () => { N(0.16, 2800, 0.7, 0.12, 'bandpass', 400); S(110, 50, 0.16, 0.10, 'sine'); },
     swarm:    () => N(0.14, 1200, 0.9, 0.05, 'bandpass', 3200, 0.03),
     // tirs ennemis (selon l'univers)
@@ -107,7 +110,9 @@ const SFX = (() => {
     play(n, gap = 26) {
       if (!ctx || vol <= 0 || !lib[n]) return;
       const now = performance.now(); if (last[n] && now - last[n] < gap) return; last[n] = now;
+      dest = n.startsWith('e_') ? ebus : master;
       try { lib[n](); } catch (e) { /* audio indisponible */ }
+      dest = master;
     },
     setVol(v) { vol = v; if (master) master.gain.value = v; },
     vib(ms) { try { if (Store.d && Store.d.set.vib && navigator.vibrate) navigator.vibrate(ms); } catch (e) { /* non supporté */ } },

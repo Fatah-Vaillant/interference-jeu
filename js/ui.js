@@ -98,7 +98,7 @@ const UI = {
     $('#scrim').addEventListener('click', () => { if (Game.state === 'paused') Game.pause(false); });
     $('#briefNext').addEventListener('click', () => this.briefStep());
     $('#briefSkip').addEventListener('click', () => this.briefEnd());
-    this.bindSettings(); this.dialInit();
+    this.bindSettings(); this.dialInit(); this.tapRescue();
     addEventListener('resize', () => { this.sizeHeroes(); this.segThumb('#hangSeg'); this.segThumb('#tierSeg'); });
     addEventListener('keydown', e => this.onKey(e));
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { this.segThumb('#hangSeg'); this.segThumb('#tierSeg'); });
@@ -108,6 +108,29 @@ const UI = {
     requestAnimationFrame(t => this.heroLoop(t));
   },
 
+  // toucher rattrapé (retours n° 2 : « il faut appuyer plusieurs fois ») : un bouton enfoncé s'abaisse de quelques pixels
+  // (:active) et un doigt posé sur son bord se retrouvait dehors au relâchement : le navigateur perdait le clic.
+  // Doigt relevé près de son point d'appui (≤ 14 px, ≤ 0,8 s) mais hors du bouton, sans clic natif : on le donne.
+  tapRescue() {
+    const SEL = 'button, [role=button], .mis, .ut, .tile, .sc, .ak, label.sw';
+    let d = null;
+    addEventListener('click', e => { this.lastClk = { el: e.target, t: performance.now() }; }, true);
+    addEventListener('pointerdown', e => { const b = e.target.closest && e.target.closest(SEL); d = b && !b.disabled && b.id !== 'ondeBtn' && b.id !== 'ultBtn' ? { b, x: e.clientX, y: e.clientY, t: performance.now(), id: e.pointerId } : null; }, true);
+    addEventListener('pointercancel', () => { d = null; }, true);
+    addEventListener('pointerup', e => {
+      const o = d; d = null;
+      if (!o || e.pointerId !== o.id || Math.hypot(e.clientX - o.x, e.clientY - o.y) > 14 || performance.now() - o.t > 800) return;
+      const h = document.elementFromPoint(e.clientX, e.clientY);
+      if (h && (h === o.b || o.b.contains(h))) return;
+      this.rescueP = o; setTimeout(() => this.rescueRun(o), 60);
+    }, true);
+  },
+  // clic rattrapé, sauf si le navigateur l'a livré entre-temps (jamais deux fois) ; le smoke l'appelle sans attendre
+  rescueRun(o) {
+    if (!o || o !== this.rescueP) return; this.rescueP = null; const L = this.lastClk;
+    if (!o.b.isConnected || o.b.disabled || (L && L.t >= o.t && (L.el === o.b || o.b.contains(L.el)))) return;
+    this.rescued = (this.rescued || 0) + 1; o.b.click();
+  },
   /* ---------- navigation ---------- */
   go(id) {
     this.cur = id;
@@ -362,13 +385,14 @@ const UI = {
   // paliers en grosses cartes : emblème à chevrons (1 à 3), nom, règle, bouclier et multiplicateur, record et meilleure vague
   renderInfTiers() { this.renderInf(); },
   renderInf() {
-    const box = $('#tierList'), sh = computeStats(Store.d.ship).shield;
+    const box = $('#tierList'), S0 = computeStats(Store.d.ship), sh = S0.shield;
     box.innerHTML = TIERS.map((T, i) => {
       const best = Store.d.best['t' + i] || 0, wv = Store.d.best['w' + i] || 0, sv = T.hp <= -99 ? 0 : Math.max(0, sh + T.hp);
       return `<button class="tc${i === this.sel.tier ? ' on' : ''}" role="radio" aria-checked="${i === this.sel.tier}" data-i="${i}" style="--tc:${T.col}" aria-label="${tx('inf.tierAria', { name: T.name, desc: T.desc, rec: fmt(best) })}"><span class="em">${chevrons(i + 1, T.col)}</span><span class="tx"><b class="nm">${T.name}</b><span class="ds">${T.desc}</span><span class="mods"><i>${sv ? tx('inf.shieldN', { n: sv }) : tx('inf.noShield')}</i><i>${tx('inf.mul', { n: String(T.mul).replace('.', ',') })}</i></span></span><span class="rec"><small>${tx('inf.recordShort')}</small><b>${best ? fmt(best) : '—'}</b>${wv ? `<small>${tx('inf.waveShort', { n: wv })}</small>` : ''}</span></button>`;
     }).join('');
     box.querySelectorAll('.tc').forEach(b => b.addEventListener('click', () => { SFX.play('tap'); this.sel.tier = +b.dataset.i; this.renderInf(); }));
     $('#infGo').innerHTML = tx('common.launch') + `<small>${TIERS[this.sel.tier].name}</small>`;
+    const pk = (Store.d.best['p' + this.sel.tier] || 0) + 1; $('#infPal').textContent = tx('pal.next', { n: palName(pk), w: pk * PAL_EVERY, c: fmt(palCr(pk, S0.cred)) });
   },
   launchInf() { SFX.init(); SFX.play('confirm'); this.play({ mode: 'inf', tier: this.sel.tier }); },
 
@@ -474,6 +498,21 @@ const UI = {
     }
   },
   placeHud(cw, ch) { const st = $('#stage'), h = $('#hud'); h.style.width = cw + 'px'; h.style.height = ch + 'px'; h.style.left = (st.clientWidth - cw) / 2 + 'px'; h.style.top = (st.clientHeight - ch) / 2 + 'px'; },
+  // bas du HUD (px écran, depuis le haut du HUD) : limite haute du vaisseau (Game.hudTop)
+  hudBottom() {
+    const h = $('#hud'), r0 = h.getBoundingClientRect(); if (!r0.height) return 0;
+    let b = 0; for (const s of ['.hud-top', '.hud-xp', '#hWeapon', '#hSkills']) { const r = $(s).getBoundingClientRect(); if (r.width > 0 && r.height > 0) b = Math.max(b, r.bottom - r0.top); }
+    return b;
+  },
+  // le score rétrécit (en douceur) pour ne jamais toucher le numéro de vague centré
+  fitScore() {
+    const b = $('#hScore'), p = $('#hPill'), sc = b.parentElement, r0 = sc.getBoundingClientRect(); if (!r0.height) return;
+    const old = b.style.getPropertyValue('--fit') || '1';
+    b.style.transition = 'none'; b.style.setProperty('--fit', '1'); const w = b.getBoundingClientRect().width;
+    const edge = p.style.visibility === 'hidden' ? $('#pauseBtn').getBoundingClientRect().left : p.getBoundingClientRect().left;
+    const k = clamp((edge - r0.left - 10) / Math.max(1, w), 0.4, 1).toFixed(3);
+    b.style.setProperty('--fit', old); void b.offsetWidth; b.style.transition = ''; b.style.setProperty('--fit', k);
+  },
   worldTheme(Wd) { document.documentElement.style.setProperty('--world', Wd.bgc); document.body.classList.toggle('bw', !!Wd.bw); },
   hud(g) {
     if (!g.p) return;
@@ -481,7 +520,7 @@ const UI = {
     const set = (k, v, fn) => { if (C[k] !== v) { C[k] = v; fn(v); } };
     set('score', fmtBig(g.score), v => { $('#hScore').textContent = v; });
     set('combo', g.combo >= 5 ? g.combo : 0, v => { $('#hCombo').textContent = v ? tx('hud.combo', { n: v }) : ''; });
-    const pill = g.boss ? g.boss.Bd.name : g.mode === 'inf' ? tx('hud.wave', { n: g.infWave || 1 }) : g.waveIdx ? tx('hud.waveOf', { n: g.waveIdx, t: g.waveN }) : '';
+    const pill = g.boss ? g.boss.Bd.name : g.mode === 'inf' ? tx('hud.waveOf', { n: g.infWave || 1, t: Math.ceil((g.infWave || 1) / PAL_EVERY) * PAL_EVERY }) : g.waveIdx ? tx('hud.waveOf', { n: g.waveIdx, t: g.waveN }) : '';
     set('pill', pill, v => { const el = $('#hPill'); el.textContent = v; el.style.visibility = v ? 'visible' : 'hidden'; });
     // points de coque (PV) : segments verts, orange à la moitié, rouge au dernier ; le bouclier, lui, ne se voit que sous le vaisseau
     set('hp', g.p.hp + '/' + g.p.hpMax, () => {
@@ -491,6 +530,7 @@ const UI = {
       $('#hHpN').textContent = tx('hud.hp', { n: hp, t: hpMax }); el.setAttribute('aria-label', tx('hud.hpAria', { n: hp, t: hpMax }));
       if (was != null && hp < was) { el.classList.remove('hit'); void el.offsetWidth; el.classList.add('hit'); }
     });
+    set('fit', $('#hScore').textContent.length + '|' + pill + '|' + innerWidth + 'x' + innerHeight + '|' + Store.d.set.ts, () => this.fitScore());
     set('sk', Store.d.set.hudSk ? Object.entries(g.skills).map(e => e.join(':')).join(',') : '-', () => this.hudSkills(g));
     set('xp', Math.round(g.xp / g.need * 100), v => { $('#hXp').style.width = v + '%'; });
     set('lvl', g.lvl, v => { $('#hLvl').textContent = tx('hud.lvl', { n: v }); });
@@ -503,6 +543,8 @@ const UI = {
     set('onde', Math.round(g.onde * 100), v => { $('#ondeRing').style.strokeDashoffset = 207.3 * (1 - v / 100); $('#ondeBtn').classList.toggle('ready', v >= 100); });
     set('ult', Math.round(g.ult * 100), v => { $('#ultRing').style.strokeDashoffset = 207.3 * (1 - v / 100); $('#ultBtn').classList.toggle('ready', v >= 100); });
     if (g.boss && !g.boss.dying) { const B = g.boss, sh = B.nodes.some(n => !n.dead); set('bossf', Math.round(B.hp / B.max * 500) + (sh ? 's' : ''), () => { const w = Math.max(0, B.hp / B.max * 100) + '%'; $('#hBossFill').style.width = w; $('#hBossLag').style.width = w; $('#hBoss').classList.toggle('shielded', sh); }); }
+    // limite haute du vaisseau remesurée quand le HUD change de hauteur (rangée de compétences, étiquette d'arme, taille de l'écran)
+    set('top', C.sk + '|' + C.wpn + '|' + innerWidth + 'x' + innerHeight + '|' + Store.d.set.ts, () => g.hudTop());
   },
   // rangée discrète des compétences acquises (réglage du joueur) : 6 au plus, triées par rareté puis niveau
   hudSkills(g) {
@@ -530,7 +572,8 @@ const UI = {
   showLevelUp(opts, lvl) {
     this.lvOpts = opts; const touch = matchMedia('(pointer: coarse)').matches;
     const glint = '<svg viewBox="0 0 24 24"><path d="M12 0Q12 12 24 12Q12 12 12 24Q12 12 0 12Q12 12 12 0Z" fill="#FFF"/></svg>';
-    this.sheet(`<div class="sh-head c"><small>${tx('lvl.over', { n: lvl })}</small><h2>${tx('lvl.title')}</h2></div>` + opts.map((s, i) => {
+    const used = Game.slotsUsed(), max = CONFIG.skills.maxActive, slots = `<p class="lv-slots${used >= max ? ' full' : ''}">${tx(used >= max ? 'lvl.full' : 'lvl.slots', { n: used, t: max })}</p>`;
+    this.sheet(`<div class="sh-head c"><small>${tx('lvl.over', { n: lvl })}</small><h2>${tx('lvl.title')}</h2>${slots}</div>` + opts.map((s, i) => {
       const R = RARITY[s.r], n = Game.skills[s.id] || 0, cls = ['', 'com', 'rare', 'epi', 'leg'][s.r];
       return `<button class="sc ${cls}" data-i="${i}" style="--rc:${R.col}"><canvas class="ic" data-ic="${s.id}"></canvas><span class="tx"><b class="nm">${s.name}</b><span class="rr">${R.name}</span><span class="ds">${s.desc}</span></span>` +
         `<span class="lv${n ? '' : ' new'}">${n ? tx('lvl.lv', { n: n + 1 }) : tx('lvl.new')}</span>${touch ? '' : `<kbd>${i + 1}</kbd>`}${s.r >= 3 ? `<i class="gl">${glint}</i>` : ''}<canvas class="fr"></canvas></button>`;
@@ -631,7 +674,7 @@ const UI = {
       btns = homeB + `<button class="pill primary wide" id="eAgain">${tx('end.retry')}</button>`;
     } else {
       head = `<div class="sh-head c"><small>${tx('end.infTier', { tier: TIERS[Game.tier].name })}</small><h2 class="rib">${tx(r.best ? 'end.record' : 'end.infOver')}</h2></div>`;
-      body = rows([[tx('end.wave'), r.wave], [tx('end.score'), fmt(r.score)], [tx('end.comboMax'), r.combo], [tx('end.credits'), '+' + fmt(r.total)]]);
+      body = rows([[tx('end.wave'), r.wave], [tx('end.pal'), r.pal ? palName(r.pal) : tx('end.palNone')], [tx('end.score'), fmt(r.score)], [tx('end.comboMax'), r.combo], [tx('end.credits'), '+' + fmt(r.total)]]);
       btns = homeB + `<button class="pill primary wide" id="eAgain">${tx('end.again')}</button>`;
     }
     this.sheet(head + body + this.buildRow() + `<div class="btns end">${btns}</div>`);

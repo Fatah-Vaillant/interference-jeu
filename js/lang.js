@@ -68,11 +68,19 @@ const LANG = {
     'hint.graze': 'Frôle les tirs ennemis pour charger l’onde',
     'hint.ondeTouch': 'Onde prête · touche ONDE', 'hint.ondeKey': 'Onde prête · touche E', 'hint.ultTouch': 'Ultime prêt · touche ULTIME', 'hint.ultKey': 'Ultime prêt · touche R',
     'game.escort': 'Escorte lourde', 'game.miniboss': 'Mini-boss', 'game.squad': 'Escadrille complète', 'game.squadCr': '+{n} crédits',
+    'game.xp': '+{n} XP',
+    'cube.tip': 'Touche ce cube pour changer d\'arme', 'cube.got': '{n} : {d}', 'game.lvlCr': 'Niveau max · +{n} crédits',
+    // As : ennemi d'élite qui esquive (noms de vents)
+    'elite.title': 'As · {n}', 'elite.sub': 'Il esquive tes tirs : abats-le avant sa fuite', 'elite.gone': '{n} s\'est échappé', 'elite.down': 'As abattu : {n}',
+    'elite.n0': 'Mistral', 'elite.n1': 'Sirocco', 'elite.n2': 'Tramontane', 'elite.n3': 'Zéphyr', 'elite.n4': 'Noroît', 'elite.n5': 'Simoun', 'elite.n6': 'Bise', 'elite.n7': 'Autan',
+    // paliers de l'Infini (retours n° 2) : un tous les 10 vagues, au boss ; noms tirés de la radio
+    'pal.n1': 'Porteuse', 'pal.n2': 'Harmonique', 'pal.n3': 'Résonance', 'pal.n4': 'Modulation', 'pal.n5': 'Saturation', 'pal.n6': 'Larsen', 'pal.n7': 'Brouillage', 'pal.n8': 'Plein spectre', 'pal.nX': 'Au-delà {k}',
+    'pal.title': 'Palier {k} : {n}', 'pal.cr': '+{n} crédits', 'pal.next': 'Prochain palier : {n}, vague {w} (+{c} crédits)', 'end.pal': 'Palier atteint', 'end.palNone': 'aucun',
     'game.revive': 'Dernier souffle', 'game.shieldUp': 'Bouclier +{n}', 'game.shieldDown': 'Bouclier tombé', 'game.hpLost': 'Coque −1', 'game.hpUp': 'Coque +{n}', 'game.hullLow': 'Coque critique', 'game.hullLowSub': 'Le prochain coup est fatal', 'game.boss': 'Boss', 'game.phase': 'Phase {n}', 'game.down': 'Neutralisé',
     'game.ultTag': 'ULTIME', 'game.where': 'Fréquence {f} · Mission {m}', 'game.whereBoss': 'Fréquence {f} · Boss', 'game.whereInf': 'Mode infini · {tier}', 'game.bossIs': 'Boss : {name}',
 
     /* ---------- feuilles ---------- */
-    'lvl.over': 'Niveau {n}', 'lvl.title': 'Choisis une compétence',
+    'lvl.over': 'Niveau {n}', 'lvl.title': 'Choisis une compétence', 'lvl.slots': 'Emplacements {n} / {t}', 'lvl.full': 'Emplacements pleins : améliore tes compétences',
     'pause.title': 'Pause', 'pause.whereInf': 'Infini · vague {n}', 'pause.resume': 'Reprendre', 'pause.restart': 'Recommencer', 'pause.quit': 'Quitter la partie',
     'pause.skills': 'Compétences acquises', 'pause.none': 'Aucune compétence pour l’instant.', 'pause.lv': 'Nv {n}', 'pause.lvMax': 'Nv {n} · max', 'lvl.new': 'Nouveau', 'lvl.lv': 'Nv {n}',
     'end.win': 'Mission accomplie', 'end.lose': 'Signal perdu', 'end.record': 'Nouveau record', 'end.infOver': 'Fin du balayage', 'end.infTier': 'Infini · {tier}',
@@ -107,7 +115,7 @@ const LANG = {
     'sk.bounce.name': 'Rebond', 'sk.bounce.desc': 'Les tirs rebondissent sur les bords.',
     'sk.crit.name': 'Critique', 'sk.crit.desc': '+10 % de chances de coup ×2,5.',
     'sk.drone.name': 'Drone allié', 'sk.drone.desc': 'Un drone tire à tes côtés.',
-    'sk.orbit.name': 'Boucliers rotatifs', 'sk.orbit.desc': 'Deux sphères tournent autour de toi et bloquent les tirs.',
+    'sk.orbit.name': 'Boucliers rotatifs', 'sk.orbit.desc': 'Un éclat de plus tourne autour de toi et bloque les tirs (3 au plus).',
     'sk.hull.name': 'Bouclier renforcé', 'sk.hull.desc': 'Le champ de force encaisse un coup de plus.',
     'sk.ult.name': 'Ultime rapide', 'sk.ult.desc': 'L’ultime se charge 30 % plus vite.',
     'sk.freeze.name': 'Givre', 'sk.freeze.desc': '8 % de chances de geler un ennemi.',

@@ -18,14 +18,16 @@ const ARCH = {
 // [archétype, difficulté minimale, poids] ; kamikazes rares (retour du 22/11 : « en petite dose »), lourds dès le début
 const ARCH_UNLOCK = [['grunt', 0, 5], ['gunner', 0, 2.4], ['heavy', 0, 1.6], ['diver', 3, 1.5], ['kamikaze', 6, 0.35], ['bomber', 8, 0.8], ['splitter', 12, 1], ['shield', 16, 0.55]];
 
+// Couleurs des armes : toujours FROIDES (cyan, azur, lavande, blanc, menthe) ; les tirs ennemis sont chauds (retours n° 2 : on les confondait).
 // Familles d'armes (niveaux 1 à 10). Une valeur « [a, b] » vaut a + b × niveau ; un tableau de 10 valeurs se lit au niveau.
 // fire = motif de tir lu par le moteur : 'spread' (gerbe), 'chain' (arc qui rebondit), 'rail' (rayon), 'swarm' (missiles à tête chercheuse).
 const WEAPONS = {
-  imp:    { col: '#E8A15A', sfx: 'imp', sfxGap: 60, fire: 'spread', shot: 'imp', n: [1, 2, 3, 3, 4, 5, 5, 6, 7, 7], spread: 0.065, spreadMax: 0.42, gap: 5, speed: 900, dmg: [1, 0.09], cd: [0.12, 0], cdFast: [7, 0.85], helixAt: 10 },
-  plasma: { col: '#8FD3E6', sfx: 'plasma', fire: 'spread', shot: 'plasma', n: [1, 1, 2, 2, 3, 3, 4, 4, 5, 5], spread: 0.12, gap: 0, speed: 560, dmg: [2.2, 0.25], cd: [0.3, -0.01], splash: [26, 3.5] },
+  imp:    { col: '#6FDCF0', sfx: 'imp', sfxGap: 60, fire: 'spread', shot: 'imp', n: [1, 2, 3, 3, 4, 5, 5, 6, 7, 7], spread: 0.065, spreadMax: 0.42, gap: 5, speed: 900, dmg: [1, 0.09], cd: [0.12, 0], cdFast: [7, 0.85], helixAt: 10 },
+  plasma: { col: '#5FA2FF', sfx: 'plasma', fire: 'spread', shot: 'plasma', n: [1, 1, 2, 2, 3, 3, 4, 4, 5, 5], spread: 0.12, gap: 0, speed: 560, dmg: [2.2, 0.25], cd: [0.3, -0.01], splash: [26, 3.5] },
   arc:    { col: '#B9A8F0', sfx: 'arc', fire: 'chain', range: [720, 20], chains: [1, 0.5], dmg: [0.95, 0.13], forkAt: 10, cd: [0.15, -0.004] },
-  rail:   { col: '#F2F2F4', sfx: 'rail', fire: 'rail', lines: [1, 1, 1, 1, 1, 2, 2, 2, 3, 3], offsets: { 1: [0], 2: [-12, 12], 3: [-18, 0, 18] }, dmg: [4.2, 0.65], width: [7, 1], cd: [0.55, -0.024] },
-  swarm:  { col: '#E0806A', sfx: 'swarm', fire: 'swarm', shot: 'missile', n: [2, 2, 3, 3, 4, 4, 5, 5, 6, 6], speed: 260, dmg: [1.6, 0.16], cd: [0.34, -0.016] },
+  rail:   { col: '#EAF1FA', sfx: 'rail', fire: 'rail', lines: [1, 1, 1, 1, 1, 2, 2, 2, 3, 3], offsets: { 1: [0], 2: [-12, 12], 3: [-18, 0, 18] }, dmg: [4.2, 0.65], width: [7, 1], cd: [0.55, -0.024] },
+  // missiles nettement affaiblis (retours n° 2 : ils tuaient tout instantanément) : moins nombreux, moins forts, ne traversent pas, virent moins sec
+  swarm:  { col: '#7FE3AE', sfx: 'swarm', fire: 'swarm', shot: 'missile', n: [1, 2, 2, 2, 3, 3, 3, 4, 4, 4], speed: 260, dmg: [1.25, 0.11], cd: [0.42, -0.012], turn: 4.2, maxSp: 560 },
 };
 const lin = (v, L) => v[0] + L * v[1]; // valeur « [a, b] » au niveau L
 const FAMS = Object.keys(WEAPONS);
@@ -68,24 +70,26 @@ const ICONS = {
 // fx : effets déclaratifs cumulés par le moteur (Game.mod) : { stat, add, base } → base (si niveau ≥ 1) + add × niveau.
 //      Statistiques reconnues : voir STATS ci-dessous et docs/AJOUTER.md.
 // take : effets immédiats à la prise ({ shield, shieldMax, weapon }) ; need : condition d'apparition (clé de NEEDS).
+// free : effet immédiat qui n'occupe pas d'emplacement (CONFIG.skills.maxActive compétences différentes au plus).
+// Gains décroissants (CONFIG.skills.decay) sur toutes les statistiques, sauf les entières (INT_STATS).
 const SKILLS = [
   { id: 'rate', r: 1, max: 5, fx: [{ stat: 'fire', add: 0.12 }] },
   { id: 'dmg', r: 1, max: 5, fx: [{ stat: 'dmg', add: 0.15 }] },
   { id: 'magnet', r: 1, max: 2, fx: [{ stat: 'magnet', add: 0.6 }] },
-  { id: 'heal', r: 1, max: 3, need: 'hpNotFull', take: { hp: 1 } },
+  { id: 'heal', r: 1, max: 3, need: 'hpNotFull', take: { hp: 1 }, free: true },
   { id: 'onde', r: 1, max: 3, fx: [{ stat: 'ondeCharge', add: 0.3 }] },
   { id: 'pierce', r: 2, max: 3, fx: [{ stat: 'pierce', add: 1 }] },
   { id: 'bounce', r: 2, max: 2, fx: [{ stat: 'bounce', add: 1 }] },
   { id: 'crit', r: 2, max: 4, fx: [{ stat: 'crit', add: 0.1 }] },
   { id: 'drone', r: 2, max: 3, fx: [{ stat: 'drones', add: 1 }] },
-  { id: 'orbit', r: 2, max: 3, fx: [{ stat: 'orbs', add: 2 }] },
+  { id: 'orbit', r: 2, max: 3, fx: [{ stat: 'orbs', add: 1 }] }, // 3 orbes au plus (CONFIG.skills.orbsMax)
   { id: 'hull', r: 2, max: 3, take: { shieldMax: 1, shield: 1 } },
   { id: 'ult', r: 2, max: 3, fx: [{ stat: 'ultCharge', add: 0.3 }] },
   { id: 'freeze', r: 3, max: 2, fx: [{ stat: 'freeze', add: 0.08 }] },
   { id: 'shards', r: 3, max: 2, fx: [{ stat: 'shards', base: 2, add: 2 }] },
   { id: 'diag', r: 3, max: 2, fx: [{ stat: 'diag', add: 1 }] },
   { id: 'rico', r: 3, max: 2, fx: [{ stat: 'rico', add: 0.5 }] },
-  { id: 'wpn', r: 4, max: 3, need: 'weaponNotMax', take: { weapon: 1 } },
+  { id: 'wpn', r: 4, max: 3, need: 'weaponNotMax', take: { weapon: 1 }, free: true },
   { id: 'storm', r: 3, max: 2, fx: [{ stat: 'storm', base: 2, add: 1 }] },
   { id: 'graze', r: 4, max: 1, fx: [{ stat: 'grazeGain', add: 1 }, { stat: 'grazeBuff', add: 2 }] },
   { id: 'revive', r: 4, max: 1, fx: [{ stat: 'revive', add: 1 }] },
@@ -100,6 +104,8 @@ const STATS = {
   storm: 'éclair tous les 10 impacts (cibles touchées)', grazeGain: 'gain des frôlements +x', grazeBuff: 'secondes de bonus de dégâts après un frôlement',
   revive: 'revient une fois par mission', fever: 'dégâts +x au-delà de 25 de combo', echo: 'double du vaisseau qui rejoue ta trajectoire et tire (part des dégâts)',
 };
+// statistiques entières (un nombre de tirs, d'orbes, de drones…) : pas de gains décroissants
+const INT_STATS = new Set(['pierce', 'bounce', 'drones', 'orbs', 'shards', 'diag', 'storm', 'revive']);
 const NEEDS = { hpNotFull: g => g.p.hp < g.p.hpMax, weaponNotMax: g => g.p.wl < 10, echoOn: () => !!CONFIG.features.echo };
 const RARITY = { 1: { col: '#EEF0F2', w: 10 }, 2: { col: '#4FA3FF', w: 5 }, 3: { col: '#A879FF', w: 3 }, 4: { col: '#F2B84B', w: 2 } }; // noms : lang.js (rar.N)
 
@@ -148,6 +154,11 @@ const TIERS = [   // noms : lang.js (tier.N). Records : Store.d.best.tN
   { d: 44, mul: 4.5, hp: -1, col: '#D9705F' },
   { d: 60, mul: 7, hp: -99, col: '#F2F2F4' },
 ];
+
+// Paliers de l'Infini (retours n° 2) : franchis au boss des vagues 10, 20, 30… ; nom (lang.js pal.nK) et crédits
+const PAL_EVERY = 10;
+function palName(k) { return tx(k <= 8 ? 'pal.n' + k : 'pal.nX', { k }); }
+function palCr(k, cred) { return Math.round(CONFIG.rewards.infPal * k * (cred || 1)); }
 
 // Statistiques du joueur : châssis + améliorations permanentes
 function computeStats(chId) {

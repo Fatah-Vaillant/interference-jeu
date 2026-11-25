@@ -45,7 +45,7 @@ const Game = {
     this.cv.width = Math.round(W * dpr); this.cv.height = Math.round(H * dpr);
     this.dpr = dpr; this.k = cw / W; Art.setDPR(dpr);
     if (this.running && this.wi != null) this.bg = this.getBg(this.wi);
-    UI.placeHud(cw, ch);
+    UI.placeHud(cw, ch); this.hudTop();
   },
 
   onKey(e, down) {
@@ -64,6 +64,7 @@ const Game = {
   pDown(e) {
     if (!this.running || !this.p) return;
     const [x, y] = this.toLogical(e);
+    this.tapCube(x, y); // toucher un cube d'arme du doigt le prend aussi (le glissé continue normalement)
     if (e.pointerType === 'mouse') { this.mouseDown = true; this.mouseFollow = true; this.p.tx = x; this.p.ty = y; return; }
     e.preventDefault();
     this.ptr = { id: e.pointerId, sx: x, sy: y, px: this.p.x, py: this.p.y };
@@ -82,7 +83,9 @@ const Game = {
   },
   // sensibilité du doigt (réglage Profil / pause, CONFIG.move.sens)
   sens() { return clamp(+Store.d.set.sens || 1.3, 0.5, 3); },
-  moveBox() { return [22, W - 22, this.moveMode === 'float' ? H * 0.34 : H * 0.45, H - 64]; },
+  moveBox() { const M = CONFIG.move; return [22, W - 22, Math.round(clamp((this.hudB || 0) - (this.noseY || 0) + M.top, M.topMin, H * 0.45)), H - 64]; },
+  // limite haute du vaisseau : juste sous le HUD (bas du HUD mesuré en pixels écran, ramené aux unités jeu)
+  hudTop() { const b = UI.hudBottom(); this.hudB = b && this.k ? b / this.k : 0; },
   pUp(e) { if (e.pointerType === 'mouse') this.mouseDown = false; if (this.ptr && this.ptr.id === e.pointerId) this.ptr = null; },
 
   /* ================= démarrage ================= */
@@ -95,8 +98,8 @@ const Game = {
     if (this.mode === 'inf') S.shield = TIERS[this.tier].hp <= -99 ? 0 : Math.max(0, S.shield + TIERS[this.tier].hp); // paliers : bouclier réduit ou supprimé
     this.skills = {}; this.modC = null;
     this.p = { x: W / 2, y: H - 170, tx: W / 2, ty: H - 170, vx: 0, vy: 0, hp: S.hp, hpMax: S.hp, sp: S.shield, spMax: S.shield, regT: 0, inv: 2, hitFx: null, shieldT: 0, wf: 'imp', wl: Math.min(10, S.wl), cd: 0, diagT: 0, droneT: 0, buffT: 0, revived: false, tilt: 0, flash: 0 };
-    Object.assign(this, { score: 0, combo: 0, comboT: 0, maxCombo: 0, kills: 0, hits: 0, hpLost: 0, grazes: 0, cr: 0, xp: 0, lvl: 1, need: 8, pend: 0, onde: 0, ult: 0,
-      t: 0, ts: 1, shake: 0, flashA: 0, hurtA: 0, stormN: 0, over: false, outro: null, delay: null, volT: 2, diveT: 3, mzI: 0, ondeLock: 0, ultLock: 0, huntT: 4, curT: 8 });
+    Object.assign(this, { score: 0, combo: 0, comboT: 0, maxCombo: 0, kills: 0, hits: 0, hpLost: 0, grazes: 0, cr: 0, xp: 0, lvl: 1, need: this.xpNeed(1), pend: 0, lvBreak: false, onde: 0, ult: 0, dps: 0, dmgAcc: 0, pwT: 0, infHpK: 0, infDens: 0, infBossK: 0, xpTxt: [], pal: 0, palCrT: 0,
+      t: 0, ts: 1, shake: 0, flashA: 0, hurtA: 0, stormN: 0, over: false, outro: null, delay: null, volT: 2, diveT: 3, mzI: 0, ondeLock: 0, ultLock: 0, huntT: 4, curT: 8, eliteT: 0, eliteW: 0 });
     this.ens = []; this.pb = []; this.eb = []; this.pk = []; this.fx = []; this.zaps = []; this.rails = []; this.beams = []; this.texts = []; this.nums = []; this.spawnQ = [];
     this.boss = null; this.cine = null; this.uf = null; this.wave = null; this.F = null; this.ondeFx = null; this.wfade = 0;
     this.mouseFollow = false; this.mouseDown = false; this.ptr = null; this.keys = {};
@@ -129,7 +132,7 @@ const Game = {
     this.hitR = clamp(this.pW * 0.14, 8, 13);
     this.lineY = veh === 'tank' ? H - 126 : veh === 'destroyer' ? H - 84 : null;
     if (this.p) {
-      if (this.lineY) { this.p.y = this.p.ty = this.lineY; } else if (this.p.y > H - 110 || this.p.y < H * 0.45) { this.p.y = this.p.ty = H - 170; }
+      if (this.lineY) { this.p.y = this.p.ty = this.lineY; } else if (this.p.y > H - 110 || this.p.y < this.moveBox()[2]) { this.p.y = this.p.ty = H - 170; }
       this.p.vx = this.p.vy = 0;
     }
     this.addMode = this.Wd.light ? 'source-over' : 'lighter';
@@ -147,14 +150,29 @@ const Game = {
     WORLDS[u].bgStatic(c);
     return (this.bgCache[key] = cv);
   },
-  switchWorld(u) { this.wfade = 1; this.setWorld(u); SFX.play('swipe'); },
+  // changement d'univers (Infini) : tous les tirs ennemis effacés, puis 2 s d'invulnérabilité visible (anneau qui se vide)
+  switchWorld(u) { this.wfade = 1; this.setWorld(u); SFX.play('swipe'); this.eb = []; this.beams = []; this.rails = []; this.p.inv = Math.max(this.p.inv, 2); this.p.invFx = 2; },
   scoreMul() { return this.mode === 'inf' ? TIERS[this.tier].mul : 1; },
   // résistance des ennemis selon la difficulté courante
-  hpK() { const D = CONFIG.difficulty; return this.mode === 'inf' ? 1 + this.d * D.enemyHpInf + this.d * this.d * D.enemyHpInf2 : 1 + this.d * D.enemyHp; },
+  hpK() { return this.mode === 'inf' ? Math.max(this.hpKd(), this.infHpK || 0) : this.hpKd(); },
+  hpKd() { const D = CONFIG.difficulty; return this.mode === 'inf' ? 1 + this.d * D.enemyHpInf + this.d * this.d * D.enemyHpInf2 : 1 + this.d * D.enemyHp; },
+  // Infini indexé sur la puissance réelle (CONFIG.infPower) : un ennemi de base encaisse au moins dps × ttk(n) ;
+  // au-delà de la résistance prévue par la difficulté, la densité monte aussi. Ni l'une ni l'autre ne redescend.
+  infScale(n) {
+    const P = CONFIG.infPower, need = this.dps * (P.ttk0 + P.ttkN * n) / ARCH.grunt.hp, base = this.hpKd();
+    this.infHpK = Math.max(this.infHpK || 0, need);
+    this.infDens = Math.max(this.infDens || 0, clamp(Math.log2(Math.max(1, this.infHpK / base)), 0, P.densMax));
+  },
+  // dégâts par seconde mesurés : seulement quand au moins 3 cibles sont là (sinon on mesure le manque de cibles, pas la puissance)
+  measureDps(dt) {
+    this.pwT += dt; if (this.pwT < 1) return;
+    if (this.targets().length >= 3) { const v = this.dmgAcc / this.pwT; this.dps += (v - this.dps) * (v > this.dps ? 0.3 : 0.06); }
+    this.dmgAcc = 0; this.pwT = 0;
+  },
   // pression (0 au début, jusqu'à 1,6) : chasseurs, rideaux de tirs, tirs droits qui visent ; réduite en mission
   press() {
     const D = CONFIG.difficulty;
-    if (this.mode === 'inf') return clamp((this.d - D.pressD) / D.pressSpan, 0, D.pressMax);
+    if (this.mode === 'inf') return clamp((this.d - D.pressD) / D.pressSpan + 0.35 * (this.infDens || 0), 0, D.pressMax + 0.6);
     return clamp((this.d - D.pressMissionD) / D.pressMissionSpan, 0, D.pressMax) * D.pressMission;
   },
   tierAt() { let k = 0; TIERS.forEach((t, i) => { if (this.d >= t.d) k = i; }); return k; },
@@ -175,11 +193,13 @@ const Game = {
     const n = ++this.infWave;
     // montée continue et sans plafond : linéaire + légère accélération
     this.d = TIERS[this.tier].d + (n - 1) * CONFIG.difficulty.infWave + (n - 1) * (n - 1) * CONFIG.difficulty.infWave2;
+    this.infScale(n);
     const go = () => {
       if (n % 10 === 0) { this.startBoss(); return; }
       const tn = TIERS[this.tierAt()].name;
       if (n > 1) UI.banner(tx('hud.wave', { n }), (n - 1) % 3 === 0 ? this.Wd.name : tn);
-      this.startWave(n % 5 === 0 ? 'formMini' : Ideas.on('convoy') && n % 8 === 4 && this.Wd.view === 'top' && this.Wd.move === 'free' ? 'convoy' : pick(['form', 'form', 'mix', 'fly']));
+      // (plus de convoi en Infini : les cargos mouraient toujours sous les ennemis qui descendent, retours n° 2)
+      this.startWave(n % 5 === 0 ? 'formMini' : pick(['form', 'form', 'mix', 'fly']));
     };
     if (n > 1 && (n - 1) % 3 === 0) {
       // molette radio : le joueur choisit la fréquence suivante (sinon tirage)
@@ -189,18 +209,22 @@ const Game = {
     go();
   },
   startWave(kind) {
-    const d = this.d;
+    const d = this.d, dens = this.mode === 'inf' ? Math.round(this.infDens || 0) : 0;
+    this.lvBreak = false;
     this.wave = { kind, t: 0, total: 0, killsN: 0, giftAt: 6, giftDone: false, flyLeft: 0, flyT: 0, mini: kind === 'formMini', miniDone: false };
-    if (kind !== 'fly' && kind !== 'convoy') this.makeFormation(kind === 'mix' ? -1 : 0);
-    if (kind === 'fly') { this.wave.flyLeft = 4 + Math.floor(d / 12); this.wave.flyT = 0.3; this.F = null; }
+    if (kind !== 'fly' && kind !== 'convoy') this.makeFormation((kind === 'mix' ? -1 : 0) + (dens >= 1 ? 1 : 0));
+    if (kind === 'fly') { this.wave.flyLeft = 4 + Math.floor(d / 12) + dens * 2; this.wave.flyT = 0.3; this.F = null; }
     if (kind === 'convoy') { this.wave.flyLeft = 4 + Math.floor(d / 16); this.wave.flyT = 2.5; this.F = null; Ideas.startConvoy(this); }
-    if (kind === 'mix') { this.wave.flyLeft = 2 + Math.floor(d / 16); this.wave.flyT = 4.5; }
+    if (kind === 'mix') { this.wave.flyLeft = 2 + Math.floor(d / 16) + dens; this.wave.flyT = 4.5; }
+    this.eliteCheck(kind);
     this.wave.giftAt = Math.max(5, Math.floor((this.wave.total || 24) * 0.45));
     this.volT = 2.2; this.diveT = 3.5;
     // forte pression : chaque vague s'ouvre sur un rideau de tirs et un chasseur, même si elle est vite nettoyée
     if (this.press() >= 0.3) { this.curT = Math.min(this.curT, 1.6); this.huntT = Math.min(this.huntT, 2.4); }
     Ideas.onWave(this, kind);
   },
+  // dernière étape d'une mission : pas de choix de compétence juste avant la fin
+  lastStep() { return this.mode === 'mission' && this.steps && this.stepI >= this.steps.length - 1; },
   waveDone() {
     this.wave = null; this.F = null; SFX.play('clear');
     this.delay = { t: 1.1, fn: () => this.nextStep() };
@@ -378,6 +402,69 @@ const Game = {
     if (this.F && e.slot) { const [sx, sy] = this.slotPos(e.slot); e.state = 'return'; e.path = { p: [e.x, e.y, e.x, e.y - 240, sx, sy - 80], t: 0, dur: 1.3, ease: 1 }; }
     else this.reenter(e);
   },
+  /* ---------- As : ennemi d'élite rare qui esquive comme un joueur (retours n° 2 : « on adore ») ---------- */
+  eliteCheck(kind) {
+    const C = CONFIG.elite; if (kind === 'convoy' || this.eliteT > 0) return;
+    let go;
+    if (this.mode === 'inf') { const n = this.infWave, since = n - (this.eliteW || 0); go = n >= C.infFrom && since >= C.infGap && (since >= 8 || Math.random() < 0.4); }
+    else go = this.u >= 1 && this.m === C.missionM && !this.eliteW && this.waveIdx === 2;
+    if (go) { this.eliteW = this.infWave || 1; this.eliteT = 4.5; }
+  },
+  spawnElite() {
+    const C = CONFIG.elite, w = this.wave; if (!w || this.boss) return;
+    const e = this.newEnemy('gunner', rand(80, W - 80), -70);
+    e.w *= 1.3; e.h *= 1.3; e.rx *= 1.3; e.ry *= 1.3; if (e.b0) e.b0 = null;
+    e.hp = e.max = Math.max(C.hpMin * this.hpK(), this.dps * C.hpT); e.wave = w; e.state = 'elite';
+    const name = tx('elite.n' + randi(0, 7));
+    e.elite = { name, t: 0, st: C.stamina, cd: 0, iv: 0, dv: 0, dT: 0, fT: 1.6, side: Math.random() < 0.5 ? -1 : 1, flee: false, gh: [] };
+    UI.banner(tx('elite.title', { n: name }), tx('elite.sub')); SFX.play('phase');
+  },
+  updElite(e, dt) {
+    const p = this.p, E = e.elite, C = CONFIG.elite; E.t += dt;
+    E.st = Math.min(C.stamina, E.st + C.regen * dt); E.cd -= dt; E.iv -= dt;
+    for (const g of E.gh) g.a -= dt * 3; E.gh = E.gh.filter(g => g.a > 0);
+    if (E.t > C.dur && !E.flee) { E.flee = true; UI.banner(tx('elite.gone', { n: E.name })); }
+    if (E.flee) { e.y -= 340 * dt; if (e.y < -90) e.gone = true; return; }
+    if (E.dT > 0) {
+      // esquive en cours : glissade rapide sur le côté, intouchable, images fantômes
+      E.dT -= dt; e.x = clamp(e.x + E.dv * dt, 30, W - 30); if (vrnd() < 0.7) E.gh.push({ x: e.x, y: e.y, a: 1 });
+    } else {
+      // menace : un tir du joueur qui va passer sur lui dans moins de 0,35 s, ou la ligne d'un rayon
+      let thr = null;
+      for (const b of this.pb) {
+        const dx = e.x - b.x, dy = e.y - b.y, dd = Math.hypot(dx, dy); if (dd > 170) continue;
+        const cl = (b.vx * dx + b.vy * dy) / (dd || 1); if (cl <= 40 || dd / cl > 0.35) continue;
+        const tt = dd / cl, mx = b.x + b.vx * tt, my = b.y + b.vy * tt;
+        if (Math.hypot(mx - e.x, my - e.y) < e.rx + b.r + 12) { thr = mx; break; }
+      }
+      if (thr == null && this.p.wf === 'rail' && e.y < p.y && Math.abs(e.x - p.x) < e.rx + 26 && p.cd < 0.12) thr = p.x;
+      if (thr != null && E.st >= 1 && E.cd <= 0 && e.t > 0.6) {
+        let dir = e.x >= thr ? 1 : -1; if ((dir > 0 && e.x > W - 100) || (dir < 0 && e.x < 100)) dir = -dir;
+        E.dv = dir * 860; E.dT = 0.17; E.iv = 0.2; E.st -= 1; E.cd = 0.2; SFX.play('graze', 60);
+      } else {
+        // comme le chasseur : de biais par rapport à la ligne de tir du joueur, et il change parfois de côté
+        if ((E.sw = (E.sw || 0) - dt) <= 0) { E.sw = rand(2.2, 3.6); if (Math.random() < 0.5) E.side = -E.side; }
+        let tx = p.x + E.side * (95 + Math.sin(e.t * 1.9 + e.seed * 6) * 40); if (tx < 40 || tx > W - 40) { E.side = -E.side; tx = p.x + E.side * 95; }
+        const ty = clamp(p.y - 300 + Math.sin(e.t * 2.1) * 26, 120, H * 0.5), m = 300 * dt;
+        e.x += clamp((clamp(tx, 40, W - 40) - e.x) * Math.min(1, dt * 3), -m, m); e.y += clamp((ty - e.y) * Math.min(1, dt * 2.4), -m, m);
+      }
+    }
+    if (!this.outro && e.y > 20 && (E.fT -= dt) <= 0) {
+      E.fT = clamp(1.25 - this.press() * 0.15, 0.8, 1.25); const a = Math.atan2(p.x - e.x, (p.y + this.hitOff) - e.y);
+      this.aimShot(e, a); if (this.press() > 0.8) { this.aimShot(e, a - 0.14); this.aimShot(e, a + 0.14); } SFX.play(this.Wd.esfx, 70);
+    }
+  },
+  // dégâts reçus par l'As : jamais plus de hitCap de ses PV par coup, moitié pour les effets automatiques
+  eliteDmg(e, dmg, src) {
+    if (['arc', 'orbit', 'splash', 'storm'].includes(src)) dmg *= 0.5;
+    return Math.min(dmg, e.max * (src === 'ult' ? 0.25 : CONFIG.elite.hitCap));
+  },
+  eliteDown(e) {
+    const C = CONFIG.elite, b = Math.round((C.cr + this.d * C.crD) * this.S.cred);
+    this.cr += b; this.score += 1500 * this.scoreMul(); this.pk.push(this.newPk('up', e.x, e.y));
+    this.explode(e.x, e.y, e.w * 1.8, this.Wd.boom); this.shake = Math.max(this.shake, 12);
+    UI.banner(tx('elite.down', { n: e.elite.name }), tx('game.squadCr', { n: b })); SFX.play('star'); SFX.play('bigboom');
+  },
   aimShot(e, a) { const sp = clamp(170 + this.d * 3.1, 170, 470) * (this.Wd.bspeed || 1); this.eb.push({ x: e.x, y: e.y + e.ry * 0.6, vx: Math.sin(a) * sp, vy: Math.cos(a) * sp, r: 5, spr: this.Wd.eb2, kind: 'n', t: 0 }); },
   // rideau : une rangée de tirs sur toute la largeur avec un seul passage (deux rangées décalées à forte pression)
   curtain(P) {
@@ -427,9 +514,10 @@ const Game = {
     if (this.intro) { this.intro.t += rdt; if (!this.intro.started && this.intro.t > 1.1) { this.intro.started = true; this.nextStep(); } if (this.intro.t >= this.intro.dur) this.intro = null; }
     if (this.delay) { this.delay.t -= dt; if (this.delay.t <= 0) { const f = this.delay.fn; this.delay = null; f(); } }
     for (let i = this.spawnQ.length - 1; i >= 0; i--) { const q = this.spawnQ[i]; q.t -= dt; if (q.t <= 0) { this.spawnQ.splice(i, 1); this.spawnForm(q); } }
+    if (this.eliteT > 0 && (this.eliteT -= dt) <= 0) this.spawnElite();
     const w = this.wave;
     if (w) { w.t += dt; if (w.flyLeft > 0) { w.flyT -= dt; if (w.flyT <= 0) this.spawnSquad(); } }
-    this.updPlayer(dt);
+    this.updPlayer(dt); this.measureDps(dt);
     this.updEnemies(dt);
     Ideas.update(this, dt);
     this.updBoss(dt);
@@ -446,9 +534,10 @@ const Game = {
     if (w && !this.boss && !this.spawnQ.length && w.flyLeft <= 0 && !this.ens.some(e => e.wave === w) && !Ideas.busy(this)) {
       if (w.mini && !w.miniDone) { w.miniDone = true; this.spawnMini(); } else this.waveDone();
     }
-    // montée de niveau
+    // montée de niveau : seulement entre deux vagues, un choix par pause (retours n° 2 : un choix toutes les 2-3 s déroutait)
     // (seulement en jeu : une montée de niveau pendant la molette radio la remplaçait et bloquait la partie)
-    if (this.pend > 0 && this.state === 'play' && !this.cine && !this.uf && !this.outro && !this.over) this.openLevelUp();
+    if (this.pend > 0 && !this.lvBreak && !this.wave && !this.boss && this.delay && !this.lastStep() && this.state === 'play' && !this.cine && !this.uf && !this.outro && !this.over) this.openLevelUp();
+    if (this.xpTxt) { for (const q of this.xpTxt) { q.life -= rdt; q.y -= 40 * rdt; } this.xpTxt = this.xpTxt.filter(q => q.life > 0); }
   },
 
   /* ================= joueur ================= */
@@ -480,7 +569,7 @@ const Game = {
     if (!this.outro) { p.x = clamp(p.x, bx0, bx1); if (this.lineY) p.y = this.lineY; else p.y = clamp(p.y, minY, by1); }
     const vx = (p.x - ox) / Math.max(dt, 1e-4);
     p.tilt += (clamp(vx / 1100, -0.3, 0.3) - p.tilt) * Math.min(1, dt * 10);
-    p.inv -= dt; p.cd -= dt; p.buffT -= dt; p.flash -= dt; p.shieldT -= dt;
+    p.inv -= dt; p.cd -= dt; p.buffT -= dt; p.flash -= dt; p.shieldT -= dt; if (p.invFx > 0) p.invFx -= dt;
     // le bouclier se recharge d'une charge après un moment sans coup
     if (p.sp < p.spMax) { p.regT += dt; if (p.regT >= this.regenT()) { p.regT = 0; this.shieldUp(1); SFX.play('ready'); } } else p.regT = 0;
     // traînée de réacteur : les points glissent vers le bas comme si le décor défilait
@@ -498,7 +587,15 @@ const Game = {
   dronePos(i, n) { const p = this.p, a = this.t * 2 + i / n * TAU; return [p.x + Math.cos(a) * 52, p.y - 12 + Math.sin(a) * 18]; },
   // effets cumulés des compétences (données SKILLS[].fx), recalculés à chaque compétence prise
   mod(stat) { return (this.modC || this.buildMods())[stat] || 0; },
-  buildMods() { const c = {}; for (const s of SKILLS) { const n = this.skills[s.id] || 0; if (!n || !s.fx) continue; for (const f of s.fx) c[f.stat] = (c[f.stat] || 0) + (f.base || 0) + (f.add || 0) * n; } return (this.modC = c); },
+  // gains décroissants (CONFIG.skills.decay) : niveau 1 = add, niveau 2 = add × r, niveau 3 = add × r²… sauf statistiques entières
+  buildMods() {
+    const c = {}, r = CONFIG.skills.decay;
+    for (const s of SKILLS) { const n = this.skills[s.id] || 0; if (!n || !s.fx) continue; for (const f of s.fx) c[f.stat] = (c[f.stat] || 0) + (f.base || 0) + (f.add || 0) * (INT_STATS.has(f.stat) ? n : (1 - r ** n) / (1 - r)); }
+    if (c.orbs) c.orbs = Math.min(c.orbs, CONFIG.skills.orbsMax);
+    return (this.modC = c);
+  },
+  // emplacements : compétences différentes déjà prises (les effets immédiats « free » n'en occupent pas)
+  slotsUsed() { return SKILLS.filter(s => !s.free && this.skills[s.id]).length; },
   fireMul() { return this.S.fire * (1 + this.mod('fire')); },
   dmgBase() { let m = this.S.dmg * (1 + this.mod('dmg')); if (this.p.buffT > 0) m *= 1.25; const fv = this.mod('fever'); if (fv && this.combo >= 25) m *= 1 + fv; return m; },
   pShot(kind, x, y, ang, sp, dmg, o) {
@@ -532,7 +629,7 @@ const Game = {
       }
       case 'swarm': { // missiles à tête chercheuse, en éventail alterné
         const n = Wp.n[L - 1];
-        for (let i = 0; i < n; i++) { const s = i % 2 ? 1 : -1; this.pShot(Wp.shot, X + s * (8 + i * 3), Y + 6, s * (0.5 + i * 0.12), Wp.speed, lin(Wp.dmg, L) * dm, { homing: true }); }
+        for (let i = 0; i < n; i++) { const s = i % 2 ? 1 : -1; this.pShot(Wp.shot, X + s * (8 + i * 3), Y + 6, s * (0.5 + i * 0.12), Wp.speed, lin(Wp.dmg, L) * dm, { homing: true, pierce: 0 }); }
         p.cd = lin(Wp.cd, L) / fm; break;
       }
     }
@@ -600,6 +697,7 @@ const Game = {
         case 'dive': case 'fly': this.followPath(e, dt, false); break;
         case 'mini': this.updMini(e, dt); break;
         case 'hunt': this.updHunt(e, dt); break;
+        case 'elite': this.updElite(e, dt); break;
         default:
           if (e.home) e.vx += clamp(p.x - e.x, -1, 1) * 160 * dt;
           e.x += e.vx * dt; e.y += e.vy * dt;
@@ -609,7 +707,7 @@ const Game = {
       }
       const vx = (e.x - ox) / Math.max(dt, 1e-4), vy = (e.y - oy) / Math.max(dt, 1e-4);
       if (e.orient === 'down') {
-        const tr = e.state === 'form' || e.state === 'mini' || e.state === 'hunt' ? 0 : (Math.abs(vx) + Math.abs(vy) > 30 ? Math.atan2(-vx, vy) : e.rot);
+        const tr = e.state === 'form' || e.state === 'mini' || e.state === 'hunt' || e.state === 'elite' ? 0 : (Math.abs(vx) + Math.abs(vy) > 30 ? Math.atan2(-vx, vy) : e.rot);
         e.rot += angDiff(tr, e.rot) * Math.min(1, dt * 7);
       } else if (e.orient === 'side') {
         const fx = e.state === 'form' ? (F ? F.vx : 0) : vx; if (Math.abs(fx) > 6) e.flip = fx < 0;
@@ -617,7 +715,7 @@ const Game = {
       } else if (e.orient === 'spin') e.rot += dt * (0.7 + e.seed);
       if (this.persp) this.depth(e);
       if (e.state !== 'enter' && !this.outro) this.enemyFire(e, dt);
-      if (!this.outro && e.t > 0.4 && ((e.x - p.x) / (e.rx + 12)) ** 2 + ((e.y - hy) / (e.ry + 12)) ** 2 < 1) { this.hurtPlayer(e.x, e.y); if (!e.mini) this.kill(e, true); }
+      if (!this.outro && e.t > 0.4 && ((e.x - p.x) / (e.rx + 12)) ** 2 + ((e.y - hy) / (e.ry + 12)) ** 2 < 1) { this.hurtPlayer(e.x, e.y); if (!e.mini && !e.elite) this.kill(e, true); }
     }
     this.ens = this.ens.filter(e => !e.dead && !e.gone);
     // salves de la formation
@@ -626,7 +724,7 @@ const Game = {
       if (this.volT <= 0) {
         this.volT = clamp(1.25 - this.d * 0.016, 0.3, 1.25) * rand(0.8, 1.2);
         const sh = this.ens.filter(e => e.state === 'form' && e.A.fire && e.frozen <= 0);
-        const vol = 1 + Math.floor(this.d / 14);
+        const vol = 1 + Math.floor(this.d / 14) + (this.mode === 'inf' ? Math.round(this.infDens || 0) : 0);
         for (let i = 0; i < vol && sh.length; i++) { const e = sh.splice(randi(0, sh.length - 1), 1)[0]; this.shoot(e, e.A.fire); }
       }
       this.diveT -= dt;
@@ -689,11 +787,14 @@ const Game = {
   /* ================= dégâts ================= */
   hurt(e, dmg, src, x, y) {
     if (e.dead || e.gone) return false;
+    if (e.elite && e.elite.iv > 0) return false;
     if (e.shield > 0 && src !== 'onde' && src !== 'ult') { e.shield = 0; e.regen = 3; this.spark(x == null ? e.x : x, y == null ? e.y : y, '#BFE3F5', 4, 160); SFX.play('shield', 60); return false; }
     let crit = false;
     if ((src === 'shot' || src === 'arc' || src === 'rail') && Math.random() < this.S.crit + this.mod('crit')) { dmg *= this.S.critMul; crit = true; }
+    if (src !== 'onde' && src !== 'ult') this.dmgAcc += dmg; // puissance mesurée : dégâts bruts (avant le plafond de l'As)
+    if (e.elite) dmg = this.eliteDmg(e, dmg, src);
     e.hp -= dmg; e.flash = 0.08; this.dmgNum(e, x == null ? e.x : x, y == null ? e.y - e.h * 0.2 : y, dmg, crit);
-    const fz = this.mod('freeze'); if (fz && src === 'shot' && Math.random() < fz) e.frozen = 1.5;
+    const fz = this.mod('freeze'); if (fz && src === 'shot' && !e.elite && Math.random() < fz) e.frozen = 1.5;
     const stc = this.mod('storm'); if (stc && src !== 'storm' && ++this.stormN >= 10) { this.stormN = 0; const t = this.nearest(e.x, e.y, 400); if (t) this.chainArc(e.x, e.y, t, stc, 3 * this.dmgBase(), 1); }
     if (crit) this.spark(x == null ? e.x : x, y == null ? e.y : y, '#FFFFFF', 5, 220);
     if (e.hp <= 0) { this.kill(e); return true; }
@@ -712,16 +813,17 @@ const Game = {
     if (e.A.split) for (const s of [-1, 1]) { const m = this.newEnemy('mini', e.x + s * 14, e.y); m.vx = s * 70; m.vy = 170; m.home = true; m.wave = e.wave; }
     const nsh = this.mod('shards'); if (nsh) { const n = nsh; for (let i = 0; i < n; i++) this.pShot('shard', e.x, e.y, i / n * TAU, 520, this.dmgBase() * 1.2, { rico: true }); }
     if (e.squad && !silent) { e.squad.k++; if (e.squad.k === e.squad.n) { const b = Math.round((CONFIG.rewards.squad + this.d) * this.S.cred); this.cr += b; this.score += 300; UI.banner(tx('game.squad'), tx('game.squadCr', { n: b })); SFX.play('star'); } }
+    if (e.elite && !silent) this.eliteDown(e);
     if (e.mini) { for (let i = 0; i < 3; i++) this.pk.push(this.newPk('cr', e.x, e.y, Math.ceil(2 + this.d * 0.3))); this.pk.push(this.newPk('up', e.x, e.y)); this.shake = 14; SFX.play('bigboom'); }
     Ideas.onKill(this, e, silent);
   },
   drop(e) {
     const A = e.A, w = this.wave;
-    for (let i = 0; i < A.xp; i++) this.pk.push(this.newPk('xp', e.x, e.y));
+    this.gainXp(A.xp * (e.mini ? 6 : 1), e.x, e.y);
     if (Math.random() < A.cr) this.pk.push(this.newPk('cr', e.x, e.y, Math.ceil((1 + this.d * 0.12) * rand(1, 2))));
     let gift = Math.random() < (A.gift || 0.025);
     if (w && !w.giftDone && ++w.killsN >= w.giftAt) { gift = true; w.giftDone = true; }
-    if (gift) this.pk.push(this.newPk('gift', e.x, e.y, 1, Math.random() < 0.5 ? pick(FAMS.filter(f => f !== this.p.wf)) : pick(FAMS)));
+    if (gift) { const q = this.newPk('gift', e.x, e.y, 1, Math.random() < 0.5 ? pick(FAMS.filter(f => f !== this.p.wf)) : pick(FAMS)); this.pk.push(q); this.cubeTip(q); }
     else if (Math.random() < CONFIG.drops.weapon + (A === ARCH.heavy ? CONFIG.drops.weaponHeavy : 0)) this.pk.push(this.newPk('up', e.x, e.y));
     else if (w && !w.cell && Math.random() < CONFIG.drops.shield * (this.mode === 'inf' ? CONFIG.drops.shieldInf : 1)) { w.cell = true; this.pk.push(this.newPk('hp', e.x, e.y)); }
   },
@@ -783,8 +885,8 @@ const Game = {
       b.t += dt;
       if (b.homing) {
         if (!b.tg || b.tg.dead || b.tg.gone || (b.tg.node && b.tg.node.dead) || (b.tg.core && !this.boss)) b.tg = this.nearest(b.x, b.y, 1100);
-        const sp = Math.min(660, Math.hypot(b.vx, b.vy) + 950 * dt); let a = Math.atan2(b.vx, -b.vy);
-        if (b.tg) { const tx = b.tg.node ? b.tg.node.x : b.tg.core && this.boss ? this.boss.x : b.tg.x, ty = b.tg.node ? b.tg.node.y : b.tg.core && this.boss ? this.boss.y : b.tg.y; a += clamp(angDiff(Math.atan2(tx - b.x, -(ty - b.y)), a), -7 * dt, 7 * dt); }
+        const Sw = WEAPONS.swarm, sp = Math.min(Sw.maxSp, Math.hypot(b.vx, b.vy) + 950 * dt), tr = Sw.turn * dt; let a = Math.atan2(b.vx, -b.vy);
+        if (b.tg) { const tx = b.tg.node ? b.tg.node.x : b.tg.core && this.boss ? this.boss.x : b.tg.x, ty = b.tg.node ? b.tg.node.y : b.tg.core && this.boss ? this.boss.y : b.tg.y; a += clamp(angDiff(Math.atan2(tx - b.x, -(ty - b.y)), a), -tr, tr); }
         b.vx = Math.sin(a) * sp; b.vy = -Math.cos(a) * sp;
         if (vrnd() < 0.6) this.fx.push({ type: 'puff', x: b.x, y: b.y, vx: 0, vy: 0, life: 0.35, max: 0.35, size: 2.5, grow: 2.2, col: this.Wd.light ? '#5A544A' : '#9AA0A8', a: 0.35 });
       }
@@ -795,7 +897,7 @@ const Game = {
       if (b.y < -40 || b.y > H + 40 || b.x < -40 || b.x > W + 40 || b.t > 3.2) { b.dead = true; continue; }
       if (b.kind === 'blade') for (const q of this.eb) if (d2(q.x, q.y, b.x, b.y) < 26 * 26) q.dead = true;
       for (const e of this.ens) {
-        if (e.dead || e.gone || (b.hit && b.hit.has(e))) continue;
+        if (e.dead || e.gone || (b.hit && b.hit.has(e)) || (e.elite && e.elite.iv > 0)) continue; // l'As en pleine esquive : les tirs le traversent
         const dx = (b.x - e.x) / (e.rx + b.r), dy = (b.y - e.y) / (e.ry + b.r);
         if (dx * dx + dy * dy < 1) { this.onHit(b, e); if (b.dead) break; }
       }
@@ -850,6 +952,13 @@ const Game = {
     for (const q of this.pk) {
       q.t += dt;
       const dx = p.x - q.x, dy = hy - q.y, dist = Math.hypot(dx, dy) || 1;
+      // cube d'arme : jamais aimanté, il descend lentement ; on le prend volontairement (vaisseau dessus, ou doigt qui le touche)
+      if (q.k === 'gift') {
+        q.vy += (CONFIG.cube.fall - q.vy) * Math.min(1, dt * 2.5); q.vx *= 1 - dt * 3;
+        q.x = clamp(q.x + q.vx * dt, 24, W - 24); q.y += q.vy * dt;
+        if (!this.outro && dist < CONFIG.cube.touch) { q.dead = true; this.collect(q); } else if (q.y > H + 30) q.dead = true;
+        continue;
+      }
       if (this.outro || (q.t > 0.3 && dist < (q.k === 'xp' ? R * 1.4 : R))) { const sp = 320 + q.t * 520; q.vx = dx / dist * sp; q.vy = dy / dist * sp; }
       else { q.vy = Math.min(150, q.vy + 280 * dt); q.vx *= 1 - dt * 2; }
       q.x += q.vx * dt; q.y += q.vy * dt;
@@ -860,13 +969,23 @@ const Game = {
   collect(q) {
     const p = this.p;
     switch (q.k) {
-      case 'xp': this.xp += q.v * Ideas.xpMul(this); SFX.play('xp', 35); while (this.xp >= this.need) { this.xp -= this.need; this.lvl++; this.need = 8 + (this.lvl - 1) * 5; this.pend++; } break;
+      case 'xp': this.gainXp(q.v); break;
       case 'cr': this.cr += Math.round(q.v * this.S.cred * Ideas.crMul(this)); SFX.play('cr', 35); break;
-      case 'gift': if (q.fam === p.wf) this.wpnUp(); else { p.wf = q.fam; this.floatText(p.x, p.y - 50, WEAPONS[q.fam].name + ' ' + p.wl, WEAPONS[q.fam].col); SFX.play('gift'); } break;
+      case 'gift': if (q.fam === p.wf) this.wpnUp(); else { p.wf = q.fam; const Wf = WEAPONS[q.fam]; this.floatText(p.x, p.y - 50, Wf.name + ' ' + p.wl, Wf.col); UI.hintText(tx('cube.got', { n: Wf.name, d: Wf.desc }), 3200); SFX.play('gift'); } if (q.tip) { Store.d.seen.cubeTip = 9; Store.save(); } break;
       case 'up': this.wpnUp(); break;
       case 'hp': this.repair(1); SFX.play('gift'); break;
       case 'sh': this.shieldUp(1); SFX.play('gift'); break;
     }
+  },
+  // cube d'arme : à ses premières apparitions (CONFIG.cube.tips), une bulle explique qu'on le touche pour changer d'arme
+  cubeTip(q) {
+    if ((Store.d.seen.cubeTip || 0) >= CONFIG.cube.tips || this.pk.some(o => o.tip && !o.dead)) return;
+    q.tip = true; Store.d.seen.cubeTip = (Store.d.seen.cubeTip || 0) + 1; Store.save();
+  },
+  tapCube(x, y) {
+    if (this.state !== 'play' || this.outro) return false;
+    const q = this.pk.find(o => o.k === 'gift' && !o.dead && d2(o.x, o.y, x, y) < CONFIG.cube.tapR ** 2);
+    if (!q) return false; q.dead = true; this.collect(q); return true;
   },
   wpnUp() { const p = this.p; if (p.wl < 10) { p.wl++; this.floatText(p.x, p.y - 50, WEAPONS[p.wf].name + ' ' + p.wl, WEAPONS[p.wf].col); SFX.play('up'); } else { this.score += 500; this.floatText(p.x, p.y - 50, '+500', '#E9C979'); } },
   // chiffres de dégâts : un chiffre par cible, cumulé tant que les coups s'enchaînent (moins de fouillis)
@@ -891,11 +1010,31 @@ const Game = {
   floatText(x, y, txt, col) { this.texts.push({ x, y, txt, col, life: 1.1, max: 1.1 }); },
 
   /* ================= montée de niveau ================= */
+  // compétences proposables : 6 différentes au plus (CONFIG.skills.maxActive) ; une fois plein, seulement celles déjà prises (+ effets immédiats)
+  skillPool() {
+    const full = this.slotsUsed() >= CONFIG.skills.maxActive;
+    return SKILLS.filter(s => (this.skills[s.id] || 0) < s.max && (!s.need || NEEDS[s.need](this)) && (!full || s.free || this.skills[s.id]));
+  },
   openLevelUp() {
-    this.pend--; this.state = 'levelup'; SFX.play('level'); this.keys = {}; this.ptr = null;
-    const pool = SKILLS.filter(s => (this.skills[s.id] || 0) < s.max && (!s.need || NEEDS[s.need](this))).map(s => ({ s, w: RARITY[s.r].w }));
+    this.pend--; this.lvBreak = true;
+    const pool = this.skillPool().map(s => ({ s, w: RARITY[s.r].w }));
+    // tout est au maximum : des crédits à la place du choix
+    if (!pool.length) { const b = Math.round((20 + this.d) * this.S.cred); this.cr += b; this.floatText(this.p.x, this.p.y - 70, tx('game.lvlCr', { n: b }), '#E9C979'); SFX.play('cr'); return; }
+    this.state = 'levelup'; SFX.play('level'); this.keys = {}; this.ptr = null;
     const opts = []; while (opts.length < 3 && pool.length) { const it = weighted(pool); opts.push(it.s); pool.splice(pool.indexOf(it), 1); }
     UI.showLevelUp(opts, this.lvl);
+  },
+  // expérience gagnée directement à la destruction (plus de points qui tombent) ; seuil : CONFIG.xp
+  xpNeed(l) { const X = CONFIG.xp; return Math.round(X.first + X.step * (l - 1) + X.grow * (l - 1) ** 2); },
+  gainXp(v, x, y) {
+    v *= Ideas.xpMul(this); this.xp += v;
+    while (this.xp >= this.need) { this.xp -= this.need; this.lvl++; this.need = this.xpNeed(this.lvl); this.pend++; }
+    if (x != null) this.xpPop(x, y, v);
+  },
+  // petit « +n » discret, tons froids, quelques-uns à la fois seulement
+  xpPop(x, y, v) {
+    const T = this.xpTxt || (this.xpTxt = []); if (T.length >= 6) return;
+    T.push({ x: clamp(x, 24, W - 24), y, v: Math.round(v), life: 0.55, max: 0.55 });
   },
   takeSkill(s) {
     this.skills[s.id] = (this.skills[s.id] || 0) + 1; this.modC = null;
@@ -961,7 +1100,10 @@ const Game = {
 
   /* ================= boss ================= */
   startBoss() {
-    const Bd = this.Wd.boss, k = CONFIG.difficulty.bossHp * (1 + this.d * CONFIG.difficulty.bossHpD), D = Art.DEF[Bd.spr];
+    const Bd = this.Wd.boss, IP = CONFIG.infPower, D = Art.DEF[Bd.spr]; this.lvBreak = false;
+    let k = CONFIG.difficulty.bossHp * (1 + this.d * CONFIG.difficulty.bossHpD);
+    // Infini : le boss tient au moins bossT(n) secondes de tir parfait à la puissance mesurée
+    if (this.mode === 'inf') k = Math.max(k, this.dps * (IP.bossT0 + IP.bossTN * this.infWave) / 300, this.infBossK || 0), this.infBossK = k;
     const w = Bd.w, h = w * D.h / D.w;
     const B = this.boss = { Bd, spr: Bd.spr, w, h, x: W / 2, y: -h * 0.6 - 40, ty: H * Bd.ty, t: 0, hp: 300 * k, max: 300 * k, phase: 1, flash: 0, patI: -1, patT: 2.6, cur: null, pt: 0, st: 0, did: 0, nodes: [], rot: 0, entering: true, dying: false, deadT: 0 };
     const N = Bd.nodes, nk = 18 * k;
@@ -1035,10 +1177,10 @@ const Game = {
     }
   },
   hurtNode(n, dmg) {
-    if (n.dead) return; n.hp -= dmg; n.flash = 0.07; this.dmgNum(n, n.x, n.y - (this.boss ? this.boss.Bd.nodes.w * 0.3 : 10), dmg, false); SFX.play('hit', 50);
+    if (n.dead) return; n.hp -= dmg; n.flash = 0.07; this.dmgAcc += dmg; this.dmgNum(n, n.x, n.y - (this.boss ? this.boss.Bd.nodes.w * 0.3 : 10), dmg, false); SFX.play('hit', 50);
     if (n.hp <= 0) {
       n.dead = true; this.explode(n.x, n.y, 70, this.Wd.boom); SFX.play('boom'); this.score += 400 * this.scoreMul();
-      for (let i = 0; i < 4; i++) this.pk.push(this.newPk('xp', n.x, n.y));
+      this.gainXp(4, n.x, n.y);
       this.pk.push(this.newPk('cr', n.x, n.y, Math.ceil(2 + this.d * 0.2)));
       if (Math.random() < 0.5) this.pk.push(this.newPk('up', n.x, n.y));
       this.addUlt(0.05);
@@ -1049,7 +1191,7 @@ const Game = {
     let crit = false;
     if ((src === 'shot' || src === 'arc' || src === 'rail') && Math.random() < this.S.crit + this.mod('crit')) { dmg *= this.S.critMul; crit = true; }
     this.dmgNum(B, x == null ? B.x + rand(-0.18, 0.18) * B.w : x, y == null ? B.y + rand(-0.1, 0.15) * B.h : y, dmg, crit);
-    B.hp -= dmg; B.flash = 0.06; this.addUlt(dmg * 0.0006);
+    B.hp -= dmg; B.flash = 0.06; this.addUlt(dmg * 0.0006); if (src !== 'ult') this.dmgAcc += dmg;
     if (src === 'shot') SFX.play('hit', 50);
     if (B.hp <= 0) this.bossDie();
   },
@@ -1069,13 +1211,19 @@ const Game = {
     this.ts = 0.25; this.shake = 24; this.flashA = 0.8; SFX.play('bigboom'); SFX.vib([60, 40, 120]);
     for (const b of this.eb) b.dead = true; this.beams = [];
     for (let i = 0; i < 10; i++) this.pk.push(this.newPk('cr', B.x + rand(-60, 60), B.y + rand(-30, 30), Math.ceil(3 + this.d * 0.3)));
-    for (let i = 0; i < 12; i++) this.pk.push(this.newPk('xp', B.x + rand(-60, 60), B.y));
+    this.gainXp(12, B.x, B.y);
     UI.bossBar(null); UI.banner(B.Bd.name, tx('game.down'));
   },
   bossDefeated() {
     Ideas.bossEnd(this);
     if (this.mode === 'mission') this.delay = { t: 0.6, fn: () => this.nextStep() };
-    else { this.repair(1); this.delay = { t: 1, fn: () => this.nextStep() }; }
+    else { this.repair(1); this.palier(Math.floor(this.infWave / PAL_EVERY)); this.delay = { t: 1, fn: () => this.nextStep() }; }
+  },
+  // palier de l'Infini franchi (boss des vagues 10, 20…) : crédits et bannière à son nom
+  palier(k) {
+    if (k < 1 || k <= (this.pal || 0)) return;
+    this.pal = k; const b = palCr(k, this.S.cred); this.cr += b; this.palCrT = (this.palCrT || 0) + b;
+    UI.banner(tx('pal.title', { k, n: palName(k) }), tx('pal.cr', { n: fmt(b) })); SFX.play('perfect');
   },
   updBeams(dt) {
     const p = this.p;
@@ -1120,6 +1268,7 @@ const Game = {
       }
     } else {
       const k = 't' + this.tier; res.wave = this.infWave; res.best = this.score > (st.best[k] || 0); if (res.best) st.best[k] = this.score; st.best['w' + this.tier] = Math.max(st.best['w' + this.tier] || 0, this.infWave);
+      res.pal = this.pal; st.best['p' + this.tier] = Math.max(st.best['p' + this.tier] || 0, this.pal);
       res.reward = Math.round(this.infWave * (CONFIG.rewards.inf + this.tier * CONFIG.rewards.infTier) * this.S.cred);
     }
     res.total = this.cr + res.reward + (res.bonus || 0); st.credits += res.total; Store.save();
@@ -1232,31 +1381,40 @@ const Game = {
     this.drawTexts(c);
   },
   drawPickups(c) {
-    c.save(); c.globalCompositeOperation = this.addMode;
-    for (const q of this.pk) {
-      if (q.k === 'xp') Art.glow(c, q.x, q.y, 8, '#3CE08A', 0.35 + 0.25 * Math.sin(q.t * 9 + q.x));
-    }
-    c.restore();
-    // XP : petits losanges verts qui scintillent (jamais ronds ni chauds, pour ne pas ressembler aux tirs ennemis)
-    for (const q of this.pk) {
-      if (q.k !== 'xp') continue;
-      const tw = Math.sin(q.t * 9 + q.x), s = 4.2 + tw * 0.6;
-      c.fillStyle = '#0B2A1A'; c.beginPath(); c.moveTo(q.x, q.y - s - 1.4); c.lineTo(q.x + s * 0.7 + 1.2, q.y); c.lineTo(q.x, q.y + s + 1.4); c.lineTo(q.x - s * 0.7 - 1.2, q.y); c.closePath(); c.fill();
-      c.fillStyle = tw > 0.6 ? '#D8FFE8' : '#5CF0A0'; c.beginPath(); c.moveTo(q.x, q.y - s); c.lineTo(q.x + s * 0.7, q.y); c.lineTo(q.x, q.y + s); c.lineTo(q.x - s * 0.7, q.y); c.closePath(); c.fill();
-    }
+    // (plus de points d'XP : l'expérience est gagnée à la destruction, retours n° 2)
     for (const q of this.pk) {
       const bob = Math.sin(q.t * 6) * 1.5;
       if (q.k === 'cr') Art.draw(c, 'pk_cr', q.x, q.y + bob, 18);
       else if (q.k === 'up') Art.draw(c, 'pk_up', q.x, q.y + bob, 30);
       else if (q.k === 'hp') Art.draw(c, 'pk_hp', q.x, q.y + bob, 30);
       else if (q.k === 'sh') Art.draw(c, 'pk_sh', q.x, q.y + bob, 30);
-      else if (q.k === 'gift') {
-        const col = WEAPONS[q.fam].col;
-        c.save(); c.translate(q.x, q.y + bob); c.globalCompositeOperation = this.addMode; Art.glow(c, 0, 0, 30, col, 0.5); c.globalCompositeOperation = 'source-over';
-        c.fillStyle = 'rgba(16,17,20,.92)'; c.strokeStyle = col; c.lineWidth = 2; c.beginPath(); c.roundRect ? c.roundRect(-15, -15, 30, 30, 9) : c.rect(-15, -15, 30, 30); c.fill(); c.stroke();
-        c.strokeStyle = col; c.lineWidth = 1.8; c.lineCap = 'round'; c.lineJoin = 'round'; c.translate(-9, -9); c.scale(0.75, 0.75); c.stroke(Art.path(ICONS[q.fam])); c.restore();
-      }
+      else if (q.k === 'gift') this.drawCube(c, q, bob);
     }
+  },
+  // cube d'arme : plus grand, teinté de la couleur de l'arme, icône épaisse, nom dessous ; bulle d'explication aux premiers
+  drawCube(c, q, bob) {
+    const Wf = WEAPONS[q.fam], col = Wf.col, k = this.tsK(), pulse = 1 + Math.sin(q.t * 5) * 0.05, y = q.y + bob;
+    c.save(); c.translate(q.x, y); c.globalCompositeOperation = this.addMode; Art.glow(c, 0, 0, 34, col, 0.55); c.globalCompositeOperation = 'source-over';
+    c.scale(pulse, pulse);
+    c.fillStyle = '#07080A'; c.beginPath(); c.roundRect ? c.roundRect(-20, -20, 40, 40, 10) : c.rect(-20, -20, 40, 40); c.fill();
+    c.fillStyle = hexA(col, 0.22); c.strokeStyle = col; c.lineWidth = 2.6; c.beginPath(); c.roundRect ? c.roundRect(-17, -17, 34, 34, 8) : c.rect(-17, -17, 34, 34); c.fill(); c.stroke();
+    c.lineWidth = 2.4; c.lineCap = 'round'; c.lineJoin = 'round'; c.translate(-11, -11); c.scale(22 / 24, 22 / 24); c.stroke(Art.path(ICONS[q.fam])); c.restore();
+    c.font = `700 ${Math.round(12 * k)}px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'alphabetic'; c.lineJoin = 'round';
+    c.lineWidth = 3.5; c.strokeStyle = '#07080A'; c.strokeText(Wf.name, q.x, y + 34); c.fillStyle = col; c.fillText(Wf.name, q.x, y + 34);
+    if (q.tip) this.drawTip(c, q.x, y, tx('cube.tip'));
+  },
+  // bulle qui pointe un objet (au-dessus, ou dessous si trop haut)
+  drawTip(c, x, y, txt) {
+    const k = this.tsK(), fs = Math.round(14 * k), up = y > 190;
+    c.font = `600 ${fs}px ${FONT}`;
+    const words = txt.split(' '), lines = []; let cur = '';
+    for (const w of words) { const t2 = cur ? cur + ' ' + w : w; if (c.measureText(t2).width > 230 && cur) { lines.push(cur); cur = w; } else cur = t2; } lines.push(cur);
+    const bw = Math.max(...lines.map(l => c.measureText(l).width)) + 24, bh = lines.length * fs * 1.25 + 14, bx = clamp(x - bw / 2, 8, W - 8 - bw), by = up ? y - 48 - bh : y + 50;
+    c.fillStyle = 'rgba(242,244,247,.97)'; c.strokeStyle = '#07080A'; c.lineWidth = 3;
+    c.beginPath(); c.roundRect ? c.roundRect(bx, by, bw, bh, 8) : c.rect(bx, by, bw, bh); c.fill(); c.stroke();
+    const ty = up ? by + bh : by, s = up ? 1 : -1; c.beginPath(); c.moveTo(x - 9, ty - s * 1.5); c.lineTo(x, ty + s * 10); c.lineTo(x + 9, ty - s * 1.5); c.closePath(); c.fill();
+    c.beginPath(); c.moveTo(x - 9, ty); c.lineTo(x, ty + s * 10); c.lineTo(x + 9, ty); c.stroke();
+    c.fillStyle = '#101216'; c.textAlign = 'center'; c.textBaseline = 'top'; lines.forEach((l, i) => c.fillText(l, bx + bw / 2, by + 8 + i * fs * 1.25)); c.textBaseline = 'alphabetic';
   },
   drawEnemies(c) {
     const t = this.t, lt = this.Wd.light;
@@ -1285,8 +1443,19 @@ const Game = {
       // bouclier : hexagone de champ de force en tirets (même famille que celui du joueur)
       if (e.shield > 0) { c.strokeStyle = 'rgba(191,227,245,.42)'; c.lineWidth = 1.2; c.setLineDash([7, 4]); c.beginPath(); for (let i = 0; i < 6; i++) { const a = i / 6 * TAU + Math.PI / 6, x = e.x + Math.cos(a) * (e.rx + 8), y = e.y + Math.sin(a) * (e.ry + 8); i ? c.lineTo(x, y) : c.moveTo(x, y); } c.closePath(); c.stroke(); c.setLineDash([]); }
       if (e.A.gen) { c.save(); c.globalCompositeOperation = this.addMode; Art.glow(c, e.x, e.y, 60, '#BFE3F5', 0.18 + Math.sin(t * 3 + e.seed * 6) * 0.05); c.restore(); }
+      if (e.elite) { this.drawElite(c, e); continue; }
       if ((e.A.hp >= 3 || e.mini) && e.hp < e.max) { if (e.mini) this.hpBar(c, e.x, e.y - e.h * 0.5 - 16, 92, 7, e, '#E0673A'); else this.hpBar(c, e.x, e.y - e.h * 0.5 - 11, clamp(e.w * 0.62, 34, 60), 5, e); }
     }
+  },
+  // As : images fantômes pendant l'esquive, chevron doré, nom et barre de vie dorée
+  drawElite(c, e) {
+    const E = e.elite, k = this.tsK();
+    for (const g of E.gh) { c.save(); c.globalAlpha = g.a * 0.45; Art.draw(c, e.spr, g.x, g.y, e.w, e.rot, e.flip, 1, 0.6); c.restore(); }
+    const y0 = e.y - e.h * 0.5 - 12;
+    this.hpBar(c, e.x, y0, 70, 6, e, '#F2B84B');
+    c.fillStyle = '#F2B84B'; c.strokeStyle = '#07080A'; c.lineWidth = 2; c.beginPath(); c.moveTo(e.x - 8, y0 - 14); c.lineTo(e.x, y0 - 8); c.lineTo(e.x + 8, y0 - 14); c.lineTo(e.x + 8, y0 - 10); c.lineTo(e.x, y0 - 4); c.lineTo(e.x - 8, y0 - 10); c.closePath(); c.stroke(); c.fill();
+    c.font = `700 ${Math.round(13 * k)}px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'alphabetic'; c.lineJoin = 'round';
+    c.lineWidth = 4; c.strokeStyle = '#07080A'; c.strokeText(E.name, e.x, y0 - 18); c.fillStyle = '#F6DA94'; c.fillText(E.name, e.x, y0 - 18);
   },
   drawBoss(c) {
     const B = this.boss; if (!B) return; const N = B.Bd.nodes, t = this.t;
@@ -1303,11 +1472,12 @@ const Game = {
     }
   },
   drawPlayerShots(c) {
-    c.save(); c.globalCompositeOperation = this.addMode;
+    // translucides : en mode additif ils le sont déjà ; sur les univers clairs, opacité réduite
+    c.save(); c.globalCompositeOperation = this.addMode; if (this.addMode !== 'lighter') c.globalAlpha = 0.8;
     for (const b of this.pb) {
       if (b.kind === 'imp') Art.draw(c, 'p_imp', b.x, b.y, 12, Math.atan2(b.vx, -b.vy), false, b.passed ? 0.35 : 1);
       else if (b.kind === 'plasma') Art.draw(c, 'p_plasma', b.x, b.y, 30);
-      else if (b.kind === 'missile') { Art.glow(c, b.x - b.vx * 0.012, b.y - b.vy * 0.012, 8, '#F0B070', 0.8); Art.draw(c, 'p_missile', b.x, b.y, 12, Math.atan2(b.vx, -b.vy)); }
+      else if (b.kind === 'missile') { Art.glow(c, b.x - b.vx * 0.012, b.y - b.vy * 0.012, 8, WEAPONS.swarm.col, 0.8); Art.draw(c, 'p_missile', b.x, b.y, 12, Math.atan2(b.vx, -b.vy)); }
       else if (b.kind === 'shard') Art.draw(c, 'p_shard', b.x, b.y, 10, Math.atan2(b.vx, -b.vy));
       else if (b.kind === 'blade') Art.draw(c, 'p_blade', b.x, b.y, 40, Math.atan2(b.vx, -b.vy) + Math.PI);
     }
@@ -1347,6 +1517,9 @@ const Game = {
     for (let i = 0; i < nd; i++) { const [dx, dy] = this.dronePos(i, nd); Art.draw(c, 'p_drone', dx, dy, 20, p.tilt * 0.6); }
     if (this.mod('orbs')) { c.save(); c.globalCompositeOperation = this.addMode; for (const [ox, oy] of this.orbitPos()) { Art.glow(c, ox, oy, 14, '#BFE3F5', 0.6); c.fillStyle = '#F2FAFF'; c.beginPath(); c.moveTo(ox, oy - 6); c.lineTo(ox + 3.4, oy); c.lineTo(ox, oy + 6); c.lineTo(ox - 3.4, oy); c.closePath(); c.fill(); } c.restore(); }
     this.drawShield(c, t);
+    // limite haute rendue visible (ligne pointillée discrète) quand le vaisseau s'en approche
+    const lim = this.moveBox()[2], near = 1 - (p.y - lim) / 80;
+    if (near > 0 && !this.lineY && !this.outro) { const ly = lim + this.noseY - 6; c.save(); c.globalAlpha = 0.45 * Math.min(1, near); c.strokeStyle = '#DCE8F4'; c.lineWidth = 1.5; c.setLineDash([10, 8]); c.beginPath(); c.moveTo(p.x - 120, ly); c.lineTo(p.x + 120, ly); c.stroke(); c.restore(); }
     if (this.ondeFx) { const f = this.ondeFx, k = easeOut(Math.min(1, f.t / 0.5)); c.strokeStyle = `rgba(255,255,255,${0.9 * (1 - k)})`; c.lineWidth = 4; c.beginPath(); c.arc(f.x, f.y, f.R * 1.3 * k, 0, TAU); c.stroke(); c.lineWidth = 1.5; c.beginPath(); c.arc(f.x, f.y, f.R * 1.05 * k, 0, TAU); c.stroke(); }
   },
   /* ---------- bouclier champ de force ---------- */
@@ -1408,6 +1581,26 @@ const Game = {
     if (p.spMax > 0) {
       if (p.sp < p.spMax) { c.globalAlpha = 0.35; arc(Math.PI / 2 + 0.5, 1, (p.sp + p.regT / this.regenT()) / p.spMax, '#9FDCFF', Rg, false); c.globalAlpha = 1; }
       arc(Math.PI / 2 + 0.5, 1, Math.max(f, p.sp > 0 ? 0.04 : 0), '#9FDCFF', Rg, false);
+    }
+    // points de coque (PV, retours n° 2 : autour du vaisseau et plus en haut de l'écran) : segments sur un arc sous la jauge
+    // du bouclier, remplis depuis la gauche ; vert, orange à la moitié, rouge (et pulsant) au dernier ; blanc au coup reçu
+    if (p.hpMax > 0 && !this.outro) {
+      const n = p.hpMax, R = Rg + 9, span = 1.15, gap = 0.08, seg = (span - gap * (n - 1)) / n, a1 = Math.PI / 2 + span / 2;
+      const col = p.hp <= 1 ? '#FF5A46' : p.hp * 2 <= n ? '#FFA040' : '#5CE08E';
+      c.lineCap = 'butt';
+      for (let i = 0; i < n; i++) {
+        const e = a1 - i * (seg + gap), s = e - seg, on = i < p.hp;
+        c.globalAlpha = 1; c.strokeStyle = 'rgba(0,0,0,.75)'; c.lineWidth = 9; c.beginPath(); c.arc(p.x, hy, R, s - 0.02, e + 0.02); c.stroke();
+        c.globalAlpha = on && p.hp <= 1 ? 0.65 + 0.35 * Math.sin(t * 9) : 1;
+        c.strokeStyle = i === p.hp && p.flash > 0 ? '#FFFFFF' : on ? col : '#2A2E34'; c.lineWidth = 5.5; c.beginPath(); c.arc(p.x, hy, R, s, e); c.stroke();
+      }
+      c.globalAlpha = 1;
+    }
+    // invulnérabilité après un changement d'univers : anneau qui se vide en 2 s
+    if (p.invFx > 0 && !this.outro) {
+      const k = Math.min(1, p.invFx / 2), R = Math.max(rx, ry) + 22;
+      c.lineCap = 'round'; c.strokeStyle = 'rgba(0,0,0,.5)'; c.lineWidth = 6; c.beginPath(); c.arc(p.x, hy, R, -Math.PI / 2, -Math.PI / 2 + TAU * k); c.stroke();
+      c.strokeStyle = `rgba(200,236,255,${0.55 + 0.35 * Math.sin(t * 14)})`; c.lineWidth = 3; c.beginPath(); c.arc(p.x, hy, R, -Math.PI / 2, -Math.PI / 2 + TAU * k); c.stroke();
     }
     c.restore();
   },
@@ -1545,6 +1738,11 @@ const Game = {
     c.globalAlpha = 1; c.textBaseline = 'alphabetic';
     c.font = `600 ${Math.round(14 * k)}px ${FONT}`;
     for (const t of this.texts) { const a = Math.min(1, t.life / t.max * 2); c.globalAlpha = a; c.fillStyle = 'rgba(0,0,0,.55)'; c.fillText(t.txt, t.x + 1, t.y + 1); c.fillStyle = t.col; c.fillText(t.txt, t.x, t.y); }
+    // +XP discret : petit, pâle, bref (l'écran reste au danger)
+    if (this.xpTxt && this.xpTxt.length) {
+      c.font = `600 ${Math.round(11 * k)}px ${FONT}`;
+      for (const q of this.xpTxt) { c.globalAlpha = 0.55 * Math.min(1, q.life / q.max * 2); c.fillStyle = '#9FE3D2'; c.fillText(tx('game.xp', { n: q.v }), q.x, q.y); }
+    }
     c.globalAlpha = 1;
   },
 };
