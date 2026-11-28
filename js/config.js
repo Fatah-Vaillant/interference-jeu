@@ -7,7 +7,7 @@
    Les valeurs propres à un contenu (PV d'un archétype, stats d'un vaisseau, paliers de l'Infini) restent dans js/data.js.
    ========================================================= */
 const CONFIG = {
-  version: '0.19.0', // à augmenter à chaque version publiée (voir CHANGELOG.md, étiquette git vX.Y.Z)
+  version: '0.19.1', // à augmenter à chaque version publiée (voir CHANGELOG.md, étiquette git vX.Y.Z)
 
   features: {
     devMenu: true, // menu développeur disponible (reste caché : 7 appuis sur le numéro de version dans Profil)
@@ -84,7 +84,7 @@ const CONFIG = {
 
   // Déplacement au doigt : le vaisseau rattrape le doigt (réactivité par seconde), vitesse plafonnée à speed × pointerMax
   // top : marge (unités jeu) entre le bas du HUD et le nez du vaisseau ; topMin : limite la plus haute, retours n° 2 : le vaisseau monte jusque sous le HUD (plus de mur invisible à mi-écran)
-  move: { pointerK: 24, pointerMax: 4.5, sens: [1, 1.3, 1.6, 2], top: 10, topMin: 150 }, // sensibilité réglable (Profil, pause) : déplacement du doigt × sens
+  move: { pointerK: 24, pointerMax: 4.5, sens: [1, 1.3, 1.6, 2], top: 10, topMin: 150, tilt: { dead: 2.5, full: 16, speed: 1.15 } }, // tilt : pilotage à l'inclinaison (degrés : zone morte, plein régime ; vitesse × celle du vaisseau) // sensibilité réglable (Profil, pause) : déplacement du doigt × sens
 
   // Prix fixes en crédits (aucun hasard payant). −1 = ne s'achète pas (débloqué en jeu)
   prices: {

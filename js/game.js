@@ -28,6 +28,9 @@ const Game = {
     addEventListener('pointermove', e => this.pMove(e));
     addEventListener('pointerup', e => this.pUp(e));
     addEventListener('pointercancel', e => this.pUp(e));
+    // pilotage à l'inclinaison (réglage « Piloter avec ») : le téléphone penché déplace le vaisseau
+    addEventListener('deviceorientation', e => this.onOri(e));
+    for (const ev of ['click', 'touchend']) addEventListener(ev, () => this.tiltAsk(), true);
     addEventListener('blur', () => { this.keys = {}; if (this.state === 'play') this.pause(true); });
     document.addEventListener('visibilitychange', () => { if (document.hidden && this.state === 'play') this.pause(true); });
     this.last = performance.now();
@@ -85,6 +88,21 @@ const Game = {
     if (cx !== tx) { P.px = cx; P.sx = x; } if (cy !== ty) { P.py = cy; P.sy = y; }
     this.p.tx = cx; this.p.ty = cy;
   },
+  /* ---- inclinaison : point neutre = position du téléphone au départ et à chaque reprise ---- */
+  onOri(e) { if (e.gamma == null || e.beta == null) return; this.ori = { b: e.beta, g: e.gamma }; if (this.tiltCal || !this.ori0) { this.ori0 = { ...this.ori }; this.tiltCal = false; } },
+  tiltOn() { return !!(Store.d && Store.d.set.tilt); },
+  tiltCalib() { if (this.ori) { this.ori0 = { ...this.ori }; this.tiltCal = false; } else this.tiltCal = true; },
+  // iPhone : l'accès aux capteurs se redemande à chaque lancement, sur un geste du joueur
+  tiltAsk() { const D = window.DeviceOrientationEvent; if (this.tiltOn() && !this.ori && !this.tiltAsked && D && typeof D.requestPermission === 'function') { this.tiltAsked = true; D.requestPermission().catch(() => {}); } },
+  // axes de -1 à 1 (gauche/droite, haut/bas), zone morte, plein régime à CONFIG.move.tilt.full degrés (÷ sensibilité)
+  tiltAxes() {
+    if (!this.tiltOn() || !this.ori || !this.ori0) return null;
+    const T = CONFIG.move.tilt, wrap = v => ((v + 540) % 360) - 180, a = (screen.orientation && screen.orientation.angle) || +window.orientation || 0;
+    let g = wrap(this.ori.g - this.ori0.g), b = wrap(this.ori.b - this.ori0.b);
+    if (a === 90) [g, b] = [b, -g]; else if (a === 270 || a === -90) [g, b] = [-b, g];
+    const f = v => Math.sign(v) * Math.min(1, Math.max(0, Math.abs(v) - T.dead) / (T.full - T.dead) * this.sens() / 1.3);
+    return [f(g), f(b)];
+  },
   // sensibilité du doigt (réglage Profil / pause, CONFIG.move.sens)
   sens() { return clamp(+Store.d.set.sens || 1.3, 0.5, 3); },
   moveBox() { const M = CONFIG.move; return [22, W - 22, Math.round(clamp((this.hudB || 0) - (this.noseY || 0) + M.top, M.topMin, H * 0.45)), H - 64]; },
@@ -96,7 +114,7 @@ const Game = {
   start(cfg) {
     SFX.init();
     this.mode = cfg.mode; this.u = cfg.u || 0; this.m = cfg.m || 0; this.tier = cfg.tier || 0; this.capsN = 0; this.ultSeen = {}; this.powC = null;
-    this.running = false; this.resize(); this.running = true;
+    this.running = false; this.resize(); this.running = true; this.tiltCalib();
     // engin : mission 1 à l'IF-50, véhicule d'époque dans les univers historiques (puissance du vaisseau équipé), vaisseau choisi ailleurs
     this.craft0 = craftFor(this.mode, this.u, this.m, Store.d.ship);
     this.chId = this.craft0.ship; this.ch = CHASSIS[this.chId] || CHASSIS.if50; this.S = computeStats(this.chId);
@@ -567,13 +585,18 @@ const Game = {
     const kx = (k.ArrowRight || k.KeyD ? 1 : 0) - (k.ArrowLeft || k.KeyA ? 1 : 0);
     const ky = (k.ArrowDown || k.KeyS ? 1 : 0) - (k.ArrowUp || k.KeyW ? 1 : 0);
     if (kx || ky) { this.mouseFollow = false; this.kb = true; p.tx = p.x + kx * 30; p.ty = p.y + ky * 30; }
-    else if (this.kb) { this.kb = false; p.tx = p.x; p.ty = p.y; }
+    else if (this.kb) { this.kb = false; if (!this.ptr && !this.mouseFollow) { p.tx = p.x; p.ty = p.y; } } // touche relâchée : le doigt posé garde sa cible
+    const ta = !kx && !ky && !this.ptr && !this.mouseFollow ? this.tiltAxes() : null; // le doigt et le clavier gardent la main
     const [bx0, bx1, minY, by1] = this.moveBox();
     p.tx = clamp(p.tx, bx0, bx1); p.ty = clamp(p.ty, minY, by1);
     const ox = p.x, spd = S.speed, ptr = this.mouseFollow || this.ptr, M = CONFIG.move;
-    if (this.outro) this.updOutro(dt);
+    // tutoriel à part : enchaîné au déplacement par « else », il immobilisait le vaisseau pendant toute la mission 01-1 (0.19.0)
     if (this.tuto) this.tutoStep(dt);
-    else if (this.moveMode === 'float') {
+    if (this.outro) this.updOutro(dt);
+    else if (ta) {
+      // inclinaison : vitesse proportionnelle à l'angle (même en apesanteur : pas d'inertie, sinon on dérive)
+      const v = spd * CONFIG.move.tilt.speed * dt; p.x += ta[0] * v; if (!this.lineY) p.y += ta[1] * v; p.tx = p.x; p.ty = p.y;
+    } else if (this.moveMode === 'float') {
       // univers « en apesanteur » : inertie gardée, mais plus vive au doigt
       const acc = ptr ? 10 : 7, top = spd * (ptr ? 1.6 : 1), ax = clamp((p.tx - p.x) * acc, -top, top), ay = clamp((p.ty - p.y) * acc, -top, top), r = Math.min(1, dt * (ptr ? 6 : 3.5));
       p.vx += (ax - p.vx) * r; p.vy += (ay - p.vy) * r;
@@ -598,7 +621,7 @@ const Game = {
     if (this.trailOn) { const T = p.trail || (p.trail = []); for (const q of T) q[1] += 260 * dt; T.unshift([p.x, p.y]); if (T.length > 16) T.length = 16; }
     if (p.hitFx && (p.hitFx.t += dt) > p.hitFx.max) p.hitFx = null;
     if (this.outro || this.over) return;
-    const firing = (Store.d.set.auto || k.Space || this.mouseDown || this.ptr) && !(this.intro && this.intro.t < 1.6);
+    const firing = (Store.d.set.auto || k.Space || this.mouseDown || this.ptr || this.tiltOn()) && !(this.intro && this.intro.t < 1.6);
     if (!firing) return;
     if (p.cd <= 0) this.fireWeapon();
     const nDiag = this.mod('diag');
@@ -1404,7 +1427,7 @@ const Game = {
   // le joueur touche l'écran : compte à rebours de 3 s (un chiffre par seconde), le doigt posé garde la main
   resumeGo(e) {
     const R = this.resume; if (this.state !== 'resume' || !R || !R.wait) return;
-    R.wait = false; R.t = 0; UI.resumeWait(false); SFX.play('beep');
+    R.wait = false; R.t = 0; UI.resumeWait(false); SFX.play('beep'); this.tiltCalib();
     if (e && e.pointerType && e.pointerType !== 'mouse' && this.p) { const [x, y] = this.toLogical(e); this.ptr = { id: e.pointerId, sx: x, sy: y, px: this.p.x, py: this.p.y }; this.p.tx = this.p.x; this.p.ty = this.p.y; }
   },
   updResume(rdt) {
@@ -1627,7 +1650,7 @@ const Game = {
       // chevrons de part et d'autre du vaisseau : « glisse à gauche, à droite »
       c.strokeStyle = '#BFD9F5'; c.lineWidth = 5;
       for (const s of [-1, 1]) { const x = p.x + s * (this.pW * 0.5 + 26 + 7 * bob); c.beginPath(); c.moveTo(x - s * 9, p.y - 14); c.lineTo(x + s * 5, p.y); c.lineTo(x - s * 9, p.y + 14); c.stroke(); }
-      plate(tx(matchMedia('(pointer: coarse)').matches ? 'hint.moveTouch' : 'hint.moveMouse'), p.x, p.y - this.pW * 0.6 - 46, 'center');
+      plate(tx(this.tiltOn() && this.ori ? 'hint.moveTilt' : matchMedia('(pointer: coarse)').matches ? 'hint.moveTouch' : 'hint.moveMouse'), p.x, p.y - this.pW * 0.6 - 46, 'center');
     } else if (T.k === 'onde' || T.k === 'ult') {
       const b = UI.btnBox(T.k === 'onde' ? '#ondeBtn' : '#ultBtn'); if (b) {
         c.globalAlpha = a; const y = b.top - 34 - 4 * bob;

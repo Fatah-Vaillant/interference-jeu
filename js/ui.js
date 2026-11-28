@@ -514,6 +514,7 @@ const UI = {
     // sensibilité du doigt (CONFIG.move.sens) : déplacement du doigt × n
     $('#setSens').innerHTML = CONFIG.move.sens.map(v => `<button data-v="${v}" aria-label="${tx('set.sensAria', { n: String(v).replace('.', ',') })}">${tx('set.sensV', { n: String(v).replace('.', ',') })}</button>`).join('');
     $$('#setSens button').forEach(b => b.addEventListener('click', () => { S.sens = +b.dataset.v; Store.save(); SFX.init(); SFX.play('tap'); this.applyA11y(); }));
+    $$('#setMove button').forEach(b => b.addEventListener('click', () => this.setTilt(b.dataset.v === '1')));
     this.applyA11y();
     $('#resetBtn').addEventListener('click', () => this.confirmReset());
     $('#expBtn').addEventListener('click', () => { SFX.init(); SFX.play('tap'); this.exportSave(); });
@@ -525,6 +526,17 @@ const UI = {
     const S = Store.d.set; document.documentElement.style.setProperty('--ts', S.ts || 1); document.body.classList.toggle('calm', !!S.calm);
     $$('#setTs button').forEach(b => b.classList.toggle('on', +b.dataset.v === (S.ts || 1)));
     $$('#setSens button').forEach(b => b.classList.toggle('on', +b.dataset.v === (S.sens || 1.3)));
+    $$('#setMove button').forEach(b => { b.classList.toggle('on', (b.dataset.v === '1') === !!S.tilt); b.setAttribute('aria-label', tx('set.moveAria', { n: tx(b.dataset.v === '1' ? 'set.moveTilt' : 'set.moveTouch') })); });
+  },
+  // pilotage à l'inclinaison : permission des capteurs (iPhone), puis vérifie qu'ils répondent, sinon retour au doigt
+  setTilt(on) {
+    const S = Store.d.set, D = window.DeviceOrientationEvent; SFX.init();
+    const set = (v, msg) => { S.tilt = v; Store.save(); this.applyA11y(); SFX.play(msg && !v ? 'deny' : 'tap'); if (msg) this.toast(tx(msg)); if (v) Game.tiltCalib(); };
+    if (!on) return set(false);
+    if (!D) return set(false, 'set.tiltNo');
+    const go = () => { set(true, 'set.tiltOn'); setTimeout(() => { if (S.tilt && !Game.ori) set(false, 'set.tiltNo'); }, 1500); };
+    if (typeof D.requestPermission === 'function') D.requestPermission().then(r => r === 'granted' ? go() : set(false, 'set.tiltDenied'), () => set(false, 'set.tiltDenied'));
+    else go();
   },
   confirmReset() {
     this.sheet(`<div class="sh-head"><small>${tx('reset.over')}</small><h2>${tx('reset.title')}</h2></div><p class="quote">${tx('reset.body')}</p><div class="btns"><button class="pill primary" id="rsNo">${tx('reset.cancel')}</button><button class="pill danger" style="width:100%" id="rsYes">${tx('reset.confirm')}</button></div>`);

@@ -90,7 +90,7 @@ const Store = {
       v: SAVE_VERSION, credits: 0, owned: ['if50'], ship: 'if50', upg: {}, supg: {},
       stars: Array(NMIS).fill(0), done: Array(NMIS).fill(false), perf: Array(NMIS).fill(false), best: {}, seen: {}, learn: {}, fus: {}, fails: {}, reach: {}, pxp: 0, rank: 1,
       stats: { kills: 0, missions: 0, combo: 0, time: 0, grazes: 0, ults: 0 },
-      set: { lang: 'fr', vol: 0.7, vib: true, auto: true, shake: true, fx: true, hudSk: true, ts: 1, sens: 1.3, calm: typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches, dev: false, devHit: false, devFps: false, devSkill: '' },
+      set: { lang: 'fr', vol: 0.7, vib: true, auto: true, shake: true, fx: true, hudSk: true, ts: 1, sens: 1.3, tilt: false, calm: typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches, dev: false, devHit: false, devFps: false, devSkill: '' },
     };
   },
   load() {

@@ -56,7 +56,7 @@ const LANG = {
     'arch.done': 'Stabilisée', 'arch.ongoing': 'En cours', 'arch.rebrief': 'Revoir le briefing',
     'reset.over': 'Réglages', 'reset.title': 'Tout effacer ?', 'reset.body': 'Missions, étoiles, crédits, vaisseaux et records seront supprimés.',
     'reset.cancel': 'Annuler', 'reset.confirm': 'Effacer la progression', 'reset.done': 'Progression effacée',
-    'set.sens': 'Sensibilité du doigt', 'set.sensV': '{n}×', 'set.sensAria': 'Sensibilité {n} fois',
+    'set.sens': 'Sensibilité', 'set.move': 'Piloter avec', 'set.moveTouch': 'Doigt', 'set.moveTilt': 'Inclinaison', 'set.moveAria': 'Piloter avec : {n}', 'set.tiltOn': 'Tiens le téléphone comme pour jouer : c’est le point neutre', 'set.tiltNo': 'Pas de capteur d’inclinaison sur cet appareil', 'set.tiltDenied': 'Capteurs de mouvement refusés par le navigateur', 'set.sensV': '{n}×', 'set.sensAria': 'Sensibilité {n} fois',
     'pwa.row': 'Jouer sans navigateur, même hors ligne', 'pwa.install': 'Installer le jeu', 'pwa.done': 'Jeu installé', 'profile.privacy': 'Confidentialité : aucune donnée collectée',
     'set.save': 'Sauvegarde', 'set.export': 'Exporter', 'set.import': 'Importer',
     'save.over': 'Sauvegarde', 'save.expTitle': 'Ton code de sauvegarde', 'save.expBody': 'Copie ce code et garde-le en lieu sûr. Sur un autre appareil : Profil, Sauvegarde, Importer.',
@@ -68,7 +68,7 @@ const LANG = {
 
     /* ---------- en jeu ---------- */
     'hud.wave': 'Vague {n}', 'hud.waveOf': 'Vague {n} / {t}', 'hud.combo': 'Combo {n}', 'hud.lvl': 'Niv. {n}', 'hud.hp': '{n}/{t}', 'hud.hpAria': 'Coque : {n} points sur {t}', 'num.M': '{n} M', 'num.Md': '{n} Md', 'hud.ult': 'Ultime', 'hud.onde': 'Onde',
-    'hint.moveTouch': 'Glisse le doigt pour piloter', 'hint.moveMouse': 'Souris ou flèches pour piloter',
+    'hint.moveTouch': 'Glisse le doigt pour piloter', 'hint.moveTilt': 'Penche le téléphone pour piloter', 'hint.moveMouse': 'Souris ou flèches pour piloter',
     'hint.graze': 'Frôle les tirs ennemis pour charger l’onde',
     'hint.ondeTouch': 'Onde prête · touche ONDE', 'hint.ondeKey': 'Onde prête · touche E', 'hint.ultTouch': 'Ultime prêt · touche ULTIME', 'hint.ultKey': 'Ultime prêt · touche R',
     'game.escort': 'Escorte lourde', 'game.miniboss': 'Mini-boss', 'game.squad': 'Escadrille complète', 'game.squadCr': '+{n} crédits',
