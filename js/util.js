@@ -52,7 +52,7 @@ function seeded(seed) {
    Règles : ne jamais supprimer une migration, ne jamais réutiliser une clé pour un autre sens, toujours ajouter un test (tests/run.js). */
 // nombre de missions de la campagne : 12 univers × 5 missions (doit suivre WORLDS.length × 5, vérifié par tests/run.js)
 const NMIS = 60;
-const SAVE_VERSION = 4;
+const SAVE_VERSION = 6;
 const MIGRATIONS = {
   // v2 → v3 : l'infini passe de 6 à 3 paliers (anciens records 3, 4, 5 → 0, 1, 2), étoiles « parfait », compétences visibles en jeu
   2(d) {
@@ -66,14 +66,29 @@ const MIGRATIONS = {
     const grow = (a, v) => (Array.isArray(a) ? a.concat(Array(Math.max(0, NMIS - a.length)).fill(v)) : Array(NMIS).fill(v));
     d.stars = grow(d.stars, 0); d.done = grow(d.done, false); d.perf = grow(d.perf, false);
   },
+  // v4 → v5 (retours n° 3) : coque, canon, onde, ultime deviennent propres à chaque vaisseau. Sans perte : chaque vaisseau
+  // possédé reçoit les niveaux déjà achetés ; aimant et prime restent au compte (d.upg)
+  4(d) {
+    const o = d.upg || {}, ship = {}; for (const k of ['hull', 'cannon', 'onde', 'ult']) if (o[k]) ship[k] = o[k];
+    d.supg = {}; for (const id of (Array.isArray(d.owned) ? d.owned : ['if50'])) d.supg[id] = Object.assign({}, ship);
+    d.upg = {}; for (const k of ['magnet', 'credit']) if (o[k]) d.upg[k] = o[k];
+  },
+  // v5 → v6 (retours n° 3) : un palier « Normal » s'insère devant l'Infini ; les records des paliers 0, 1, 2 passent en 1, 2, 3
+  5(d) {
+    const o = d.best || {}, n = {};
+    for (const k in o) { const m = /^([twp])(\d+)$/.exec(k); n[m ? m[1] + (+m[2] + 1) : k] = o[k]; }
+    d.best = n;
+  },
 };
+// améliorations propres à chaque vaisseau (les autres sont au compte) — doit suivre SHIP_UPG (js/data.js)
+const SHIP_KEYS = ['hull', 'cannon', 'rate', 'onde', 'ult'];
 const Store = {
   KEY: 'interference_v2',
   d: null,
   def() {
     return {
-      v: SAVE_VERSION, credits: 0, owned: ['if50'], ship: 'if50', upg: {},
-      stars: Array(NMIS).fill(0), done: Array(NMIS).fill(false), perf: Array(NMIS).fill(false), best: {}, seen: {}, learn: {},
+      v: SAVE_VERSION, credits: 0, owned: ['if50'], ship: 'if50', upg: {}, supg: {},
+      stars: Array(NMIS).fill(0), done: Array(NMIS).fill(false), perf: Array(NMIS).fill(false), best: {}, seen: {}, learn: {}, fus: {}, fails: {}, reach: {}, pxp: 0, rank: 1,
       stats: { kills: 0, missions: 0, combo: 0, time: 0, grazes: 0, ults: 0 },
       set: { lang: 'fr', vol: 0.7, vib: true, auto: true, shake: true, fx: true, hudSk: true, ts: 1, sens: 1.3, calm: typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches, dev: false, devHit: false, devFps: false, devSkill: '' },
     };
@@ -94,6 +109,7 @@ const Store = {
     if (!Array.isArray(d.stars) || d.stars.length !== NMIS) d.stars = Array(NMIS).fill(0);
     if (!Array.isArray(d.done) || d.done.length !== NMIS) d.done = Array(NMIS).fill(false);
     if (!Array.isArray(d.perf) || d.perf.length !== NMIS) d.perf = Array(NMIS).fill(false);
+    if (!d.supg || typeof d.supg !== 'object' || Array.isArray(d.supg)) d.supg = {};
     return d;
   },
   // applique les migrations dans l'ordre ; une sauvegarde d'une version plus récente n'est pas touchée
@@ -147,6 +163,12 @@ const Store = {
   save() { try { localStorage.setItem(this.KEY, JSON.stringify(this.d)); } catch (e) { /* stockage indisponible */ } },
   reset() { const set = this.d.set; this.d = this.def(); this.d.set = set; this.save(); },
   worldOpen(u) { return u === 0 || this.d.done[(u - 1) * 5 + 4]; },
+  // mode Infini : ouvert après la fréquence 02 (retours n° 3) ; reste ouvert pour qui y a déjà joué
+  infOpen() { return !!this.d.done[1 * 5 + 4] || Object.keys(this.d.best || {}).some(k => /^w\d+$/.test(k) && this.d.best[k] > 0); },
+  // palier i de l'Infini : le premier toujours ; les suivants en atteignant la vague TIER_OPEN du précédent (ou déjà joués)
+  tierOpen(i) { const b = this.d.best || {}; return i === 0 || (b['w' + (i - 1)] || 0) >= TIER_OPEN || (b['w' + i] || 0) > 0; },
   missionOpen(u, m) { return this.worldOpen(u) && (m === 0 || this.d.done[u * 5 + m - 1]); },
-  upg(id) { return this.d.upg[id] || 0; },
+  // niveau d'une amélioration : propre au vaisseau (ship, par défaut celui équipé) ou du compte
+  upg(id, ship) { if (!SHIP_KEYS.includes(id)) return this.d.upg[id] || 0; const S = this.d.supg[ship || this.d.ship]; return (S && S[id]) || 0; },
+  setUpg(id, v, ship) { if (!SHIP_KEYS.includes(id)) { this.d.upg[id] = v; return; } const k = ship || this.d.ship; (this.d.supg[k] || (this.d.supg[k] = {}))[id] = v; },
 };

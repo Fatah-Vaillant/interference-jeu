@@ -7,7 +7,7 @@
    Les valeurs propres à un contenu (PV d'un archétype, stats d'un vaisseau, paliers de l'Infini) restent dans js/data.js.
    ========================================================= */
 const CONFIG = {
-  version: '0.18.0', // à augmenter à chaque version publiée (voir CHANGELOG.md, étiquette git vX.Y.Z)
+  version: '0.19.0', // à augmenter à chaque version publiée (voir CHANGELOG.md, étiquette git vX.Y.Z)
 
   features: {
     devMenu: true, // menu développeur disponible (reste caché : 7 appuis sur le numéro de version dans Profil)
@@ -23,8 +23,9 @@ const CONFIG = {
 
   // Difficulté « d » : pilote PV, cadence et nombre de tirs ennemis, formations
   difficulty: {
-    missionWorld: 6.5,  // mission : d = univers × 6,5 + mission × 1,3 (univers et mission comptés à partir de 0)
-    missionStep: 1.3,
+    missionWorld: 6.5,  // mission : d = univers × 6,5 + courbe[mission] (univers et mission comptés à partir de 0, d ≥ 0)
+    // courbe en dents de scie (ANALYSE §3.4) : chaque univers monte, puis sa mission 1 redescend sous le boss de l'univers précédent
+    missionCurve: [-2, 0.6, 2.4, 4, 5.4],
     infWave: 1.8,       // infini : d = d du palier (TIERS) + 1,8 × (n − 1) + 0,025 × (n − 1)², n = numéro de vague
     infWave2: 0.025,
     enemyHp: 0.08,      // PV des ennemis × (1 + d × 0,08) en mission
@@ -89,9 +90,11 @@ const CONFIG = {
   prices: {
     // étalés sur toute la campagne (~2 400 crédits après la fréquence 01, ~57 000 après la 08, ~118 000 à la fin)
     ships: { if50: 0, lame: 3000, columbiad: 6000, concorde: 10000, nautilus: 15000, bastion: 22000, apollo: 30000, omega: -1 },
+    // retours n° 3 : coque, puissance, cadence, onde et ultime sont propres à chaque vaisseau ; aimant et prime restent globaux (compte)
     upgrades: {
       hull:   [400, 900, 1600, 2500, 4000],
       cannon: [500, 1100, 2000, 3200, 5000],
+      rate:   [450, 1000, 1800, 2900, 4500],
       onde:   [300, 700, 1300, 2200, 3500],
       ult:    [400, 900, 1600, 2500, 4000],
       magnet: [250, 600, 1200],
@@ -99,18 +102,40 @@ const CONFIG = {
     },
   },
 
+  // Sensations (retours n° 3, PLAISIR-DE-JEU §1) : arrêt sur image des grosses destructions, calme entre deux vagues,
+  // alerte avant le boss, roulis du vaisseau, combo sonore, vibrations (au plus vibMax par seconde, désactivables dans les réglages)
+  caps: { order: ['arm', 'shield', 'level'] },
+  // défi juste (PLAISIR §4) : coup de pouce gratuit après 2 défaites de suite sur une mission ; boss allégé de 15 % par défaite (60 % au moins)
+  help: { after: 2, bossStep: 0.15, bossMin: 0.6 },
+  // équipement prévu au début de chaque univers (mission 1) : vaisseau et niveau de coque, puissance et cadence ;
+  // le smoke vérifie que chaque mission 1 se gagne avec, en pilotage simple (tools/smoke.js, « retours 3 · E »)
+  plan: [['if50', 0], ['if50', 1], ['if50', 2], ['lame', 1], ['lame', 2], ['columbiad', 2], ['concorde', 2], ['nautilus', 2], ['bastion', 3], ['apollo', 3], ['omega', 3], ['omega', 4]], // l'Ω est offert par le boss de la fréquence 10
+  deathCam: 0.9,    // mort comprise : ralenti de 0,9 s sur le tir fatal, encadré d'une mire
+  // rang de pilote (PLAISIR §15) : expérience de compte à chaque partie, gagnée ou perdue ; chaque rang = crédits
+  rank: { kill: 0.5, win: 40, star: 10, loss: 15, wave: 4, need0: 120, needStep: 80, cr: 100 }, // capsule du mini-boss : contenu annoncé, dans cet ordre (décalé selon la mission)
+  feel: { hitStop: 0.05, calm: 2, bossWarn: 1.8, roll: 0.42, comboStep: 5, vibGap: 110, numsMax: 28, numsBusy: 16 },
+
+  // Mission 1 bienveillante (retours n° 3, ANALYSE §3.1) : salves et piqués plus espacés, tirs plus lents, bouclier qui revient vite
+  gentle: { fire: 1.7, dive: 1.6, bullet: 0.82, regen: 0.4 },
+
   // Récompenses en crédits
   rewards: {
+    firstFlight: 450,   // prime de premier vol (1re victoire de la mission 01-1) : de quoi acheter tout de suite une amélioration
     mission: 60,        // fin de mission gagnée : (60 + d × 9) × étoiles, × 1,5 la première fois
     missionD: 9,
     first: 1.5,
-    perfect: 0.3,       // bonus « parfait » (3 étoiles sans coup reçu) : +30 % de la récompense
+    perfect: 0.3,
+    lossK: 0.6,         // défaite : récompense d'effort = (60 + d × 9) × part de la mission faite × 0,6       // bonus « parfait » (3 étoiles sans coup reçu) : +30 % de la récompense
     inf: 20,            // fin d'infini : vagues × (20 + palier × 6)
     infTier: 6,
     infPal: 200,        // Infini : palier franchi (boss des vagues 10, 20, 30…) : 200 × numéro du palier × multiplicateur de crédits
     squad: 12,          // escadrille entière abattue : 12 + d
     creditUpg: 0.15,    // amélioration « crédits » : +15 % par niveau
   },
+
+  // Sécurité photosensible (retours n° 3) : jamais plus de maxPerSec flashs par seconde sur une grande surface (plein écran,
+  // lueur de plus de bigR px de rayon), quel que soit le réglage ; boss et gros ennemis touchés = lueur continue (heat), pas de clignotement
+  flash: { maxPerSec: 3, bigR: 60, heatHit: 0.22, heatDecay: 2.2, heatMax: 0.4 },
 
   // Budget de performance : 60 i/s sur un téléphone d'entrée de gamme (≈ 4 à 5 fois plus lent qu'un PC de bureau)
   // Mesure sur téléphone : menu développeur → « Images par seconde » (i/s, pire image, calcul, objets, résolution).
@@ -124,6 +149,7 @@ const CONFIG = {
     // sans GPU (rendu logiciel, bien plus lent qu'un téléphone). Mesuré le 21/11 : moyenne ~8 ms, 95 % ~22 ms.
     smokeAvgMs: 12,
     smokeP95Ms: 30,
+    smokeBenchMs: 130, // étalon du smoke (dessin fixe), machine de référence sur secteur (26/11 : 335 ms sur batterie, où la v0.18.0 passait de 8,6 à 22 ms) ; plus lent = budget proportionnel
   },
 
   // Butins laissés par les ennemis (probabilités par ennemi détruit)

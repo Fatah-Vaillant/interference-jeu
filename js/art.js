@@ -213,6 +213,37 @@ const Art = (() => {
     if (flash > 0) { c.globalAlpha = alpha * Math.min(1, flash); c.drawImage(s.fl, ox, oy, s.w, s.h); }
     c.restore();
   }
+  // liseré lumineux : silhouette teintée (cache par couleur), agrandie de « grow » autour du point d'ancrage
+  function rim(c, name, x, y, px, r, col, a, grow = 1.1) {
+    const s = get(name, px); s.tn = s.tn || {}; let t = s.tn[col];
+    if (!t) { t = s.tn[col] = mk(s.fl.width, s.fl.height); const g = t.getContext('2d'); g.drawImage(s.fl, 0, 0); g.globalCompositeOperation = 'source-in'; g.fillStyle = col; g.fillRect(0, 0, t.width, t.height); }
+    const ox = (s.D.cx || 0) * s.sc - s.w / 2, oy = (s.D.cy || 0) * (s.D.down ? -1 : 1) * s.sc - s.h / 2;
+    c.save(); c.translate(x, y); if (r) c.rotate(r); c.scale(grow, grow); c.globalAlpha *= a; c.drawImage(t, ox, oy, s.w, s.h); c.restore();
+  }
+  // pièces d'amélioration (canons, blindage, ailettes de refroidissement) posées sur la coque et découpées à sa silhouette ;
+  // L = { cannon, hull, rate } niveaux achetés ; un bitmap par vaisseau, taille et niveaux
+  function parts(c, name, x, y, px, r, L, a = 1) {
+    const nc = L.cannon || 0, nh = L.hull || 0, nr = L.rate || 0; if (!nc && !nh && !nr) return;
+    const s = get(name, px), key = nc + '' + nh + nr; s.pt = s.pt || {}; let t = s.pt[key];
+    if (!t) {
+      t = s.pt[key] = mk(s.fl.width, s.fl.height); const g = t.getContext('2d'), k = s.fl.width / s.w, D = s.D;
+      const ax = s.w / 2 - (D.cx || 0) * s.sc, ay = s.h / 2 - (D.cy || 0) * (D.down ? -1 : 1) * s.sc, w = D.w * s.sc, h = D.h * s.sc;
+      g.setTransform(k, 0, 0, k, ax * k, ay * k); g.lineJoin = 'round';
+      const box = (x0, y0, bw, bh, f) => { g.fillStyle = f; g.fillRect(x0, y0, bw, bh); g.strokeStyle = '#07080A'; g.lineWidth = Math.max(0.8, w * 0.008); g.strokeRect(x0, y0, bw, bh); };
+      // canons : une paire au niveau 1, deux paires dès le niveau 3, plus longs à chaque niveau, bout clair
+      const bw = Math.max(1.6, w * 0.024), len = h * (0.12 + 0.025 * nc);
+      for (const [cx, y0, n] of [[0.075, -0.06, 1], [0.11, 0.04, 3]]) if (nc >= n) for (const sx of [-1, 1]) { const l = len * (n === 1 ? 1 : 0.7), X = sx * w * cx - bw / 2, Y = h * y0 - l; box(X, Y, bw, l, '#3A404A'); g.fillStyle = '#E8EEF4'; g.fillRect(X, Y, bw, Math.max(1.2, bw * 0.6)); }
+      // blindage : plaques sur les ailes, une de plus par niveau (3 au plus par côté)
+      for (let j = 0; j < Math.min(3, nh); j++) for (const sx of [-1, 1]) { const pw = w * 0.075, ph = h * 0.045; box(sx * w * (0.14 + 0.08 * j) - pw / 2, h * 0.12, pw, ph, '#68717E'); g.fillStyle = 'rgba(255,255,255,.35)'; g.fillRect(sx * w * (0.14 + 0.08 * j) - pw / 2, h * 0.12, pw, Math.max(1, ph * 0.25)); }
+      // cadence : ailettes de refroidissement orangées près de la tuyère
+      g.strokeStyle = '#F0A050'; g.lineWidth = Math.max(1.2, w * 0.016); g.lineCap = 'round'; g.beginPath();
+      for (let j = 0; j < Math.min(4, nr); j++) { const Y = h * (0.24 + 0.032 * j); g.moveTo(-w * 0.075, Y); g.lineTo(-w * 0.035, Y); g.moveTo(w * 0.035, Y); g.lineTo(w * 0.075, Y); }
+      g.stroke();
+      g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'destination-in'; g.drawImage(s.fl, 0, 0);
+    }
+    const ox = (s.D.cx || 0) * s.sc - s.w / 2, oy = (s.D.cy || 0) * (s.D.down ? -1 : 1) * s.sc - s.h / 2;
+    c.save(); c.translate(x, y); if (r) c.rotate(r); if (a !== 1) c.globalAlpha *= a; c.drawImage(t, ox, oy, s.w, s.h); c.restore();
+  }
   // ombre portée au sol (univers en relief) : silhouette noire du sprite, créée à la demande
   function shadow(c, name, x, y, px, r = 0, flip = false, a = 0.3) {
     const s = get(name, px);
@@ -245,5 +276,5 @@ const Art = (() => {
   // dimensions d'affichage (pour placer moteurs, canons…)
   function scale(name, px) { return px / DEF[name].w; }
 
-  return { R, DEF, MAT, SPH, C, E, RR, POLY, STAR, GEAR, F, L, sym, rot, at, sphere, halo, path, get, draw, shadow, glow, glowTex, flames, setDPR, scale, AMBER, MINT, CRIMSON, ICE, GOLDL, WARM, SEAM };
+  return { R, DEF, MAT, SPH, C, E, RR, POLY, STAR, GEAR, F, L, sym, rot, at, sphere, halo, path, get, draw, rim, parts, shadow, glow, glowTex, flames, setDPR, scale, AMBER, MINT, CRIMSON, ICE, GOLDL, WARM, SEAM };
 })();

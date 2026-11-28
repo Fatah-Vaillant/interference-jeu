@@ -48,7 +48,7 @@ const Plat = (() => {
     cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); const c = cv.getContext('2d');
     const sc = Math.min(w / 390, h / 190), cx = w / 2, cy = h * 0.55;
     const S = [[-102, 18, 40], [0, -6, 54], [102, 18, 40]].map(([dx, dy, r]) => [cx + dx * sc, cy + dy * sc, r * sc]);
-    const t0 = performance.now(), sp = [0.2, 0.36, 0.52], tp = 0.75;
+    const t0 = performance.now(), sp = [0.25, 0.55, 0.85], tp = 1.1; // étoiles qui claquent une à une (le son suit : UI.showEnd)
     const frame = now => {
       if (!cv.isConnected) return;
       const t = (now - t0) / 1000;
@@ -62,7 +62,7 @@ const Plat = (() => {
         c.save(); c.translate(x, y); c.scale(k, k); c.translate(-x, -y); star(c, x, y, r, perfect && t > tp ? 'perfect' : 'full'); c.restore();
       });
       if (perfect && t > tp) for (let i = 0; i < 14; i++) { const sx = Math.sin(i * 12.9898) * 43758.5453, sy = Math.sin(i * 78.233) * 12345.678; twinkle(c, cx + ((sx - Math.floor(sx)) - 0.5) * 340 * sc, cy + ((sy - Math.floor(sy)) - 0.5) * 170 * sc, (2 + (i % 5)) * sc * (0.6 + 0.4 * Math.sin(t * 3 + i)), Math.min(1, (t - tp) * 2) * (0.5 + 0.5 * Math.sin(t * 2.2 + i * 1.7))); }
-      if (perfect || t < 1.3) requestAnimationFrame(frame);
+      if (perfect || t < 1.6) requestAnimationFrame(frame);
     };
     requestAnimationFrame(frame);
   }
@@ -88,8 +88,13 @@ const UI = {
     Art.setDPR(Math.min(window.devicePixelRatio || 1, 2));
     this.selLatest();
 
-    $$('#tabbar button').forEach(b => b.addEventListener('click', () => { SFX.init(); SFX.play('tap'); this.go(b.dataset.go); }));
+    $$('#tabbar button').forEach(b => b.addEventListener('click', () => {
+      SFX.init();
+      if (b.dataset.go === 's-inf' && !Store.infOpen()) { SFX.play('deny'); this.toast(tx('inf.locked')); return; }
+      SFX.play('tap'); this.go(b.dataset.go);
+    }));
     $('#launch').addEventListener('click', () => this.launch());
+    $('#craftBtn').addEventListener('click', () => { SFX.init(); this.craftNext(); });
     $('#infGo').addEventListener('click', () => this.launchInf());
     $('#shipAct').addEventListener('click', () => this.shipAction());
     $('#shipPrev').addEventListener('click', () => this.shipStep(-1)); $('#shipNext').addEventListener('click', () => this.shipStep(1));
@@ -106,6 +111,18 @@ const UI = {
     this.renderInfTiers(); this.renderHome(); this.refresh();
     requestAnimationFrame(() => this.sizeHeroes());
     requestAnimationFrame(t => this.heroLoop(t));
+    if (!Store.d.seen.flashAsk) this.flashAsk(() => this.firstRun());
+  },
+  // sécurité photosensible (retours n° 3) : au premier lancement, avant tout éclair, on propose de réduire les flashs
+  // tout premier lancement (retours n° 3) : ni accueil ni briefing, l'IF-50 décolle tout de suite sur la mission 01-1
+  firstRun() {
+    if (Store.d.done[0] || Store.d.seen.first) return;
+    Store.d.seen.first = true; Store.d.seen.b0 = true; Store.save(); this.play({ mode: 'mission', u: 0, m: 0 });
+  },
+  flashAsk(then) {
+    this.sheet(`<div class="sh-head c"><small>${tx('flashAsk.over')}</small><h2>${tx('flashAsk.title')}</h2></div><p class="quote">${tx('flashAsk.body')}</p><div class="btns"><button class="pill primary" id="faNo">${tx('flashAsk.normal')}</button><button class="pill" id="faYes">${tx('flashAsk.calm')}</button></div>`);
+    const done = calm => { SFX.init(); SFX.play('tap'); Store.d.set.calm = calm || Store.d.set.calm; Store.d.seen.flashAsk = true; Store.save(); const el = $('#setCalm'); if (el) el.checked = !!Store.d.set.calm; this.applyA11y(); this.hideSheet(); if (then) then(); };
+    $('#faNo').onclick = () => done(false); $('#faYes').onclick = () => done(true);
   },
 
   // toucher rattrapé (retours n° 2 : « il faut appuyer plusieurs fois ») : un bouton enfoncé s'abaisse de quelques pixels
@@ -145,6 +162,8 @@ const UI = {
   },
   refresh() {
     const c = fmt(Store.d.credits), n = Store.d.stars.reduce((a, b) => a + b, 0);
+    const io = Store.infOpen(), ib = $('#tabbar button[data-go="s-inf"]'); ib.classList.toggle('lock', !io); ib.setAttribute('aria-disabled', String(!io));
+    if (io && !Store.d.seen.infAnn && this.cur === 's-home' && !document.body.classList.contains('playing')) this.infAnnounce();
     for (const s of ['#homeCr', '#hangCr', '#infCr', '#profCr']) { $(s).textContent = c; $(s).setAttribute('aria-label', tx('home.creditsAria', { n: c })); }
     for (const s of ['#homeSt', '#hangSt', '#infSt', '#profSt']) { $(s).innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${STAR_P}"/></svg>${n}`; $(s).setAttribute('aria-label', tx('home.starsAria', { n })); }
   },
@@ -165,12 +184,13 @@ const UI = {
     WORLDS.forEach((w, i) => {
       const open = Store.worldOpen(i), b = document.createElement('button');
       b.className = 'chip' + (i === u ? ' on' : '') + (open ? '' : ' lock');
-      b.innerHTML = `<canvas aria-hidden="true"></canvas><b>${pad2(i + 1)}</b>` + (open ? '' : svgIcon(LOCK_P));
+      const ws = Store.d.stars.slice(i * 5, i * 5 + 5).reduce((a, c) => a + c, 0); if (Store.d.done[i * 5 + 4]) b.classList.add('clear');
+      b.innerHTML = `<canvas aria-hidden="true"></canvas><b>${pad2(i + 1)}</b>` + (open ? `<i class="pc" style="width:${Math.round(ws / 15 * 100)}%"></i>` : svgIcon(LOCK_P));
       b.setAttribute('aria-label', tx(open ? 'home.freqOpen' : 'home.freqLocked', { n: pad2(i + 1), name: w.name }));
       b.addEventListener('click', () => { SFX.init(); if (!open) { SFX.play('deny'); this.toast(tx('home.lockedToast', { n: pad2(i) })); return; } SFX.play('tap'); this.selectWorld(i); });
       ch.appendChild(b); this.worldThumb(b.querySelector('canvas'), i);
     });
-    this.renderWorldInfo(); this.renderMissions();
+    this.renderWorldInfo(); this.renderMissions(); this.renderGoal();
   },
   // vignette d'univers : le décor du jeu réduit (dessiné une fois, à la taille de la vignette)
   worldThumb(cv, u) {
@@ -188,7 +208,21 @@ const UI = {
     const u = this.sel.u, Wd = WORLDS[u], stars = Store.d.stars.slice(u * 5, u * 5 + 5).reduce((a, b) => a + b, 0);
     $('#wOver').textContent = tx('home.freq', { n: pad2(u + 1) }) + ' · ' + Wd.label;
     $('#wName').textContent = Wd.name + (Wd.year ? ', ' + Wd.year : '');
-    $('#wMeta').textContent = tx('home.starsCount', { n: stars }) + (Wd.vehicle ? ' · ' + tx('veh.' + Wd.vehicle) : '');
+    $('#wMeta').textContent = tx('home.starsCount', { n: stars }) + ' · ' + tx('home.complete', { n: Math.round(Store.d.stars.reduce((a, b) => a + b, 0) / (NMIS * 3) * 100) });
+    this.renderCraft();
+  },
+  // engin de la mission choisie : imposé (mission 1, véhicule d'époque) ou vaisseau du hangar, qu'un appui fait changer
+  renderCraft() {
+    const b = $('#craftBtn'); if (!b) return;
+    const cf = craftFor('mission', this.sel.u, this.sel.m, Store.d.ship), free = !cf.imposed, own = Store.d.owned.filter(id => CHASSIS[id]);
+    const name = cf.imposed === 'first' ? CHASSIS.if50.name : cf.veh ? tx('vehN.' + cf.veh) : cf.era ? CHASSIS[cf.era].name : CHASSIS[cf.ship].name;
+    b.innerHTML = `<small>${tx(cf.imposed === 'first' ? 'craft.first' : cf.imposed ? 'craft.era' : 'craft.yours')}</small><b>${name}</b>` + (free && own.length > 1 ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9H18L14 5M20 15H6L10 19"/></svg>' : '');
+    b.disabled = !free || own.length < 2; b.classList.toggle('era', !free);
+    b.setAttribute('aria-label', tx(free ? 'craft.aria' : 'craft.ariaEra', { name }));
+  },
+  craftNext() {
+    const own = CHASSIS_ORDER.filter(id => Store.d.owned.includes(id)); if (own.length < 2) return;
+    Store.d.ship = own[(own.indexOf(Store.d.ship) + 1) % own.length]; this.sel.ship = Store.d.ship; Store.save(); SFX.play('tap'); this.renderCraft();
   },
   renderMissions() {
     const u = this.sel.u, box = $('#missions'); box.innerHTML = '';
@@ -203,6 +237,7 @@ const UI = {
     const ok = Store.missionOpen(u, this.sel.m), L = $('#launch');
     L.disabled = !ok; L.innerHTML = tx('home.play') + '<small>' + (this.sel.m === 4 ? tx('home.playBoss') : tx('home.playMis', { n: this.sel.m + 1 })) + '</small>';
     L.setAttribute('aria-label', this.sel.m === 4 ? tx('home.launchBoss') : tx('home.launchMis', { n: this.sel.m + 1 }));
+    this.renderCraft();
   },
   starsHtml(n, perf) { let h = `<span class="stars${perf ? ' perf' : ''}">`; for (let i = 0; i < 3; i++) h += `<svg viewBox="0 0 24 24"><path class="${i < n ? 'f' : 'e'}" d="${STAR_P}"/></svg>`; if (perf) h += '<svg class="pf" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 0L7.3 4.7L12 6L7.3 7.3L6 12L4.7 7.3L0 6L4.7 4.7Z"/></svg>'; return h + '</span>'; },
   selectWorld(i) {
@@ -222,11 +257,21 @@ const UI = {
     this.play({ mode: 'mission', u, m });
   },
   play(cfg) {
+    const mi = cfg.mode === 'mission' ? cfg.u * 5 + cfg.m : -1;
+    if (mi >= 0 && !cfg.help && (Store.d.fails[mi] || 0) >= CONFIG.help.after) { this.helpAsk(cfg, mi); return; }
     this.hideSheet();
     document.body.classList.add('playing');
     $('#s-game').classList.add('on');
     this.lastCfg = cfg;
     requestAnimationFrame(() => Game.start(cfg));
+  },
+  // après 2 défaites de suite : un avantage gratuit pour la prochaine tentative (bouclier +1 ou arme +1), au choix, sans achat
+  helpAsk(cfg, mi) {
+    const ic = p => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${p}"/></svg>`;
+    this.sheet(`<div class="sh-head c"><small>${tx('help.over', { n: Store.d.fails[mi] })}</small><h2 class="rib">${tx('help.title')}</h2><p class="sub">${tx('help.sub')}</p></div>`
+      + `<div class="help-opts"><button class="pill primary" data-h="shield">${ic(ICONS.hull)}${tx('help.shield')}</button><button class="pill primary" data-h="arm">${ic(ICONS.wpn)}${tx('help.arm')}</button></div>`
+      + `<div class="btns"><button class="pill ghost" data-h="none">${tx('help.none')}</button></div>`);
+    $$('#sheetBody [data-h]').forEach(b => b.addEventListener('click', () => { SFX.init(); SFX.play(b.dataset.h === 'none' ? 'tap' : 'confirm'); this.play(Object.assign({}, cfg, { help: b.dataset.h })); }));
   },
   exitGame() {
     Game.quit(); document.body.classList.remove('playing'); $('#s-game').classList.remove('on'); this.hideSheet();
@@ -347,13 +392,14 @@ const UI = {
     $('#shipName').textContent = C.name; $('#shipOrigin').textContent = C.origin;
     // barres à 10 crans (shipBars, js/data.js) : le chiffre affiché = le nombre de crans pleins
     $('#shipStats').innerHTML = shipBars(C).map(({ k, label, n }) => `<div class="stat ${k}"><span>${tx(label)}</span><div>${Array.from({ length: 10 }, (_, i) => `<i class="${i < n ? 'f' : ''}"></i>`).join('')}</div><b>${n}</b></div>`).join('');
-    $('#shipPassive').textContent = C.passive;
+    $('#shipPassive').innerHTML = `<b>${tx('hangar.passive')}</b> ${C.passive}`;
     $('#shipUlt').innerHTML = tx('hangar.ult', { name: ULTS[C.ult].name });
     const a = $('#shipAct');
     if (st.ship === id) { a.textContent = tx('hangar.equipped'); a.disabled = true; }
     else if (owned) { a.textContent = tx('hangar.equip'); a.disabled = false; }
     else if (C.price < 0) { a.textContent = tx('hangar.lockedOmega'); a.disabled = true; }
     else { a.textContent = tx('hangar.buy', { n: fmt(C.price) }); a.disabled = st.credits < C.price; }
+    this.renderUpgrades();
   },
   shipAction() {
     const st = Store.d, id = this.sel.ship, C = CHASSIS[id];
@@ -363,21 +409,42 @@ const UI = {
     Store.save(); this.refresh(); this.renderShips();
   },
   // améliorations en tuiles : dessin au pinceau, nom, crans de niveau, étiquette de prix ; toucher la tuile = acheter
+  // retours n° 3 : coque, canon, cadence, onde et ultime propres au vaisseau sélectionné ; aimant et prime au compte
+  // hangar ouvert sur une amélioration à acheter tout de suite (après la 1re victoire) : Puissance si possible, sinon la moins chère
+  hangarFocus() {
+    this.sel.ship = Store.d.ship; this.go('s-hangar');
+    const list = UPGRADES.filter(U => U.ship), can = U => Store.upg(U.id) < U.prices.length && Store.d.credits >= U.prices[Store.upg(U.id)];
+    const U0 = list.find(U => U.id === 'cannon' && can(U)) || list.filter(can).sort((a, b) => a.prices[Store.upg(a.id)] - b.prices[Store.upg(b.id)])[0];
+    this.focusUpg = U0 ? U0.id : null; this.renderUpgrades();
+    const el = this.focusUpg && $(`#hangUpg .ut[data-u="${this.focusUpg}"]`);
+    if (el) requestAnimationFrame(() => requestAnimationFrame(() => $('#upgTip').scrollIntoView({ block: 'start' })));
+  },
   renderUpgrades() {
-    const st = Store.d, box = $('#hangUpg'); box.innerHTML = '';
-    for (const U of UPGRADES) {
-      const lv = Store.upg(U.id), max = U.prices.length, price = U.prices[lv], full = lv >= max, b = document.createElement('button');
-      b.className = 'ut' + (full ? ' max' : st.credits < price ? ' poor' : '');
-      b.setAttribute('aria-label', tx('hangar.upgAria', { name: U.name, lv, max, desc: U.desc }));
-      b.innerHTML = (Icons.ART[U.icon] ? `<canvas class="ic" data-ic="${U.icon}"></canvas>` : '<span class="ic cr"></span>') + `<b>${U.name}</b><small>${U.desc}</small><span class="pp">${Array.from({ length: max }, (_, i) => `<i class="${i < lv ? 'f' : ''}"></i>`).join('')}</span><span class="pr">${full ? tx('hangar.max') : fmt(price)}</span>`;
+    const id = this.sel.ship, C = CHASSIS[id], owned = Store.d.owned.includes(id);
+    $('#hangUpgH').textContent = tx('hangar.upgShip', { name: C.name });
+    this.upgTiles($('#hangUpg'), UPGRADES.filter(U => U.ship), id, owned);
+    const F = this.focusUpg && UPGRADES.find(U => U.id === this.focusUpg), tip = $('#upgTip');
+    tip.classList.toggle('hidden', !F); tip.textContent = F ? tx('hangar.firstUpg', { name: F.name }) : '';
+    this.upgTiles($('#hangAcc'), UPGRADES.filter(U => !U.ship), null, true);
+  },
+  upgTiles(box, list, ship, can) {
+    const st = Store.d; box.innerHTML = '';
+    list.forEach((U, k) => {
+      const lv = Store.upg(U.id, ship || undefined), max = U.prices.length, price = U.prices[lv], full = lv >= max, b = document.createElement('button');
+      b.className = 'ut' + (!can ? ' lock' : full ? ' max' : st.credits < price ? ' poor' : '');
+      b.dataset.u = U.id; if (ship && this.focusUpg === U.id && can && !full) b.classList.add('focus');
+      b.setAttribute('aria-label', tx('hangar.upgAria', { name: U.name, lv, max, desc: U.desc }) + (can ? '' : ' · ' + tx('hangar.needShip')));
+      b.innerHTML = (Icons.ART[U.icon] ? `<canvas class="ic" data-ic="${U.icon}"></canvas>` : '<span class="ic cr"></span>') + `<b>${U.name}</b><small>${U.desc}</small><span class="pp">${Array.from({ length: max }, (_, i) => `<i class="${i < lv ? 'f' : ''}"></i>`).join('')}</span><span class="pr">${!can ? tx('hangar.lockShort') : full ? tx('hangar.max') : fmt(price)}</span>`;
       b.addEventListener('click', () => {
         if (full) return;
+        if (!can) { SFX.play('deny'); this.toast(tx('hangar.needShip')); return; }
         if (Store.d.credits < price) { SFX.play('deny'); b.classList.remove('no'); void b.offsetWidth; b.classList.add('no'); return; }
-        Store.d.credits -= price; Store.d.upg[U.id] = lv + 1; Store.save(); SFX.play('buy'); this.refresh(); this.renderUpgrades();
-        const nb = $$('#hangUpg .ut')[UPGRADES.indexOf(U)]; if (nb) nb.classList.add('got');
+        if (this.focusUpg === U.id) this.focusUpg = null;
+        Store.d.credits -= price; Store.setUpg(U.id, lv + 1, ship || undefined); Store.save(); SFX.play('buy'); this.refresh(); this.renderUpgrades();
+        const nb = box.children[k]; if (nb) nb.classList.add('got');
       });
       box.appendChild(b);
-    }
+    });
     box.querySelectorAll('canvas[data-ic]').forEach(cv => Icons.paint(cv, cv.dataset.ic, 40));
   },
 
@@ -386,13 +453,27 @@ const UI = {
   renderInfTiers() { this.renderInf(); },
   renderInf() {
     const box = $('#tierList'), S0 = computeStats(Store.d.ship), sh = S0.shield;
+    if (!Store.tierOpen(this.sel.tier)) this.sel.tier = 0;
     box.innerHTML = TIERS.map((T, i) => {
       const best = Store.d.best['t' + i] || 0, wv = Store.d.best['w' + i] || 0, sv = T.hp <= -99 ? 0 : Math.max(0, sh + T.hp);
+      if (!Store.tierOpen(i)) return `<button class="tc lock" data-i="${i}" style="--tc:${T.col}" aria-disabled="true" aria-label="${T.name} · ${tx('inf.tierLock', { n: TIER_OPEN, name: TIERS[i - 1].name })}"><span class="em">${chevrons(i + 1, T.col)}</span><span class="tx"><b class="nm">${T.name}</b><span class="ds">${tx('inf.tierLock', { n: TIER_OPEN, name: TIERS[i - 1].name })}</span></span><span class="rec lk"></span></button>`;
       return `<button class="tc${i === this.sel.tier ? ' on' : ''}" role="radio" aria-checked="${i === this.sel.tier}" data-i="${i}" style="--tc:${T.col}" aria-label="${tx('inf.tierAria', { name: T.name, desc: T.desc, rec: fmt(best) })}"><span class="em">${chevrons(i + 1, T.col)}</span><span class="tx"><b class="nm">${T.name}</b><span class="ds">${T.desc}</span><span class="mods"><i>${sv ? tx('inf.shieldN', { n: sv }) : tx('inf.noShield')}</i><i>${tx('inf.mul', { n: String(T.mul).replace('.', ',') })}</i></span></span><span class="rec"><small>${tx('inf.recordShort')}</small><b>${best ? fmt(best) : '—'}</b>${wv ? `<small>${tx('inf.waveShort', { n: wv })}</small>` : ''}</span></button>`;
     }).join('');
-    box.querySelectorAll('.tc').forEach(b => b.addEventListener('click', () => { SFX.play('tap'); this.sel.tier = +b.dataset.i; this.renderInf(); }));
+    box.querySelectorAll('.tc').forEach(b => b.addEventListener('click', () => {
+      if (b.classList.contains('lock')) { SFX.play('deny'); this.toast(tx('inf.tierLock', { n: TIER_OPEN, name: TIERS[+b.dataset.i - 1].name })); return; }
+      SFX.play('tap'); this.sel.tier = +b.dataset.i; this.renderInf();
+    }));
     $('#infGo').innerHTML = tx('common.launch') + `<small>${TIERS[this.sel.tier].name}</small>`;
     const pk = (Store.d.best['p' + this.sel.tier] || 0) + 1; $('#infPal').textContent = tx('pal.next', { n: palName(pk), w: pk * PAL_EVERY, c: fmt(palCr(pk, S0.cred)) });
+  },
+  // annonce du mode Infini (une fois, quand la fréquence 02 est finie)
+  infAnnounce() {
+    Store.d.seen.infAnn = true; Store.save();
+    setTimeout(() => {
+      this.sheet(`<div class="sh-head c"><small>${tx('infAnn.over')}</small><h2>${tx('infAnn.title')}</h2></div><p class="quote">${tx('infAnn.body')}</p><div class="btns"><button class="pill ghost" id="iaLater">${tx('infAnn.later')}</button><button class="pill primary" id="iaGo">${tx('infAnn.go')}</button></div>`);
+      $('#iaLater').onclick = () => { SFX.play('tap'); this.hideSheet(); };
+      $('#iaGo').onclick = () => { SFX.play('confirm'); this.hideSheet(); this.go('s-inf'); };
+    }, 400);
   },
   launchInf() { SFX.init(); SFX.play('confirm'); this.play({ mode: 'inf', tier: this.sel.tier }); },
 
@@ -403,6 +484,16 @@ const UI = {
     const P = ['M4 20L12 4L20 20Z', STAR_P, 'M5 12H19M12 5V19M7 7L17 17M17 7L7 17', 'M4 18L10 6L16 18L20 10', ICONS.graze, 'M12 7V12L15 14M12 3A9 9 0 1 0 12.01 3'];
     const cards = [[tx('stats.missions'), s.missions], [tx('stats.stars'), tx('stats.starsVal', { n: stars, max: NMIS * 3 })], [tx('stats.kills'), fmt(s.kills)], [tx('stats.combo'), s.combo], [tx('stats.grazes'), fmt(s.grazes)], [tx('stats.time'), h ? tx('time.hm', { h, m: pad2(mn) }) : tx('time.m', { m: mn })]];
     $('#statGrid').innerHTML = cards.map(([k, v], i) => `<div class="card pt">${svgIcon(P[i])}<b>${v}</b><small>${k}</small></div>`).join('');
+    const R = Store.d.rank, need = rankNeed(R);
+    $('#rankCard').innerHTML = `<b>${tx('rank.name', { n: R })}</b><span class="rbar"><i style="width:${Math.round(Store.d.pxp / need * 100)}%"></i></span><small>${tx('rank.next', { x: Store.d.pxp, t: need })}</small>`;
+    const tr = $('#trophies'); tr.innerHTML = '';
+    WORLDS.forEach((Wd, u) => {
+      const won = Store.d.done[u * 5 + 4], el = document.createElement('div'); el.className = 'tro' + (won ? ' won' : '');
+      el.innerHTML = `<canvas aria-hidden="true"></canvas><small>${won ? Wd.boss.name : tx('trophy.unknown')}</small>`; tr.appendChild(el);
+      const cv = el.querySelector('canvas'), dpr = Math.min(window.devicePixelRatio || 1, 2), tw = 96, th = 60; cv.width = tw * dpr; cv.height = th * dpr;
+      const c = cv.getContext('2d'); c.scale(dpr, dpr); const D = Art.DEF[Wd.boss.spr]; if (!D) return; const px = Math.min(tw * 0.92, th * 0.88 * D.w / D.h);
+      if (won) Art.draw(c, Wd.boss.spr, tw / 2, th / 2, px); else Art.shadow(c, Wd.boss.spr, tw / 2, th / 2, px, 0, false, 1);
+    });
     const ar = $('#archives'); ar.innerHTML = '';
     WORLDS.forEach((Wd, i) => {
       if (!Store.worldOpen(i)) return;
@@ -486,16 +577,26 @@ const UI = {
   },
   toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(this.tT); this.tT = setTimeout(() => t.classList.remove('on'), 2300); },
 
+  // reprise après la pause : les boutons de jeu s'estompent pendant l'attente et le compte à rebours
+  resumeWait(on) { $('#hud').classList.toggle('resume', !!on || Game.state === 'resume'); if (on) $('#hud').setAttribute('aria-label', tx('resume.tap')); else $('#hud').removeAttribute('aria-label'); },
+
   /* ---------- jeu : HUD ---------- */
   gameStart() {
-    this.hudCache = {}; this.bannerQ = []; this.bannerBusy = false; this.hintsShown = {};
+    this.hudCache = {}; this.bannerQ = []; this.bannerBusy = false; this.hintsShown = {}; $('#hud').classList.remove('resume');
     $('#hBoss').classList.add('hidden'); $('#banner').classList.remove('on'); $('#hint').classList.remove('on');
-    if (Game.mode === 'mission' && Game.u === 0 && Game.m === 0 && !Store.d.seen.tuto) {
-      Store.d.seen.tuto = true; Store.save();
-      const touch = matchMedia('(pointer: coarse)').matches;
-      setTimeout(() => this.hintText(tx(touch ? 'hint.moveTouch' : 'hint.moveMouse'), 4200), 2700);
-      setTimeout(() => this.hintText(tx('hint.graze'), 3600), 7800);
-    }
+    // (tutoriel : dessiné en jeu par Game.drawTuto, une notion à la fois)
+  },
+  // petits rebonds du HUD (relancés sans attendre la fin du précédent)
+  bump(sel, cls) { const el = $(sel); if (!el) return; el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls); },
+  comboBump() { this.bump('#hCombo', 'pop'); },
+  ondeBump() { const now = performance.now(); if (now - (this.obT || 0) < 160) return; this.obT = now; this.bump('#ondeBtn', 'gz'); },
+  // bouton de pouvoir mis en avant par le tutoriel ('onde', 'ult' ou null)
+  tutoBtn(k) { for (const [id, n] of [['#ondeBtn', 'onde'], ['#ultBtn', 'ult']]) $(id).classList.toggle('tuto', k === n); },
+  // boîte d'un bouton du HUD en coordonnées du jeu (centre x, haut)
+  btnBox(sel) {
+    const b = $(sel), cv = Game.c && Game.c.canvas; if (!b || !cv) return null;
+    const r = b.getBoundingClientRect(), rc = cv.getBoundingClientRect(); if (!r.width || !rc.width) return null;
+    const k = W / rc.width; return { cx: (r.left + r.width / 2 - rc.left) * k, top: (r.top - rc.top) * k };
   },
   placeHud(cw, ch) { const st = $('#stage'), h = $('#hud'); h.style.width = cw + 'px'; h.style.height = ch + 'px'; h.style.left = (st.clientWidth - cw) / 2 + 'px'; h.style.top = (st.clientHeight - ch) / 2 + 'px'; },
   // bas du HUD (px écran, depuis le haut du HUD) : limite haute du vaisseau (Game.hudTop)
@@ -537,12 +638,12 @@ const UI = {
     set('wpn', g.p.wf + g.p.wl, () => {
       const Wf = WEAPONS[g.p.wf], el = $('#hWeapon'); let lv = '';
       for (let i = 0; i < 10; i++) lv += `<i style="${i < g.p.wl ? 'background:' + Wf.col : ''}"></i>`;
-      el.innerHTML = `<svg viewBox="0 0 24 24" style="stroke:${Wf.col}"><path d="${ICONS[g.p.wf]}"/></svg>${Wf.name}<span class="lv">${lv}</span>`;
+      el.innerHTML = `<svg viewBox="0 0 24 24" style="stroke:${Wf.col}"><path d="${ICONS[g.p.wf]}"/></svg>${g.wpnName()}<span class="lv">${lv}</span>`; el.classList.toggle('ult', g.p.wl >= 10);
       el.classList.add('bump'); setTimeout(() => el.classList.remove('bump'), 220);
     });
     set('onde', Math.round(g.onde * 100), v => { $('#ondeRing').style.strokeDashoffset = 207.3 * (1 - v / 100); $('#ondeBtn').classList.toggle('ready', v >= 100); });
     set('ult', Math.round(g.ult * 100), v => { $('#ultRing').style.strokeDashoffset = 207.3 * (1 - v / 100); $('#ultBtn').classList.toggle('ready', v >= 100); });
-    if (g.boss && !g.boss.dying) { const B = g.boss, sh = B.nodes.some(n => !n.dead); set('bossf', Math.round(B.hp / B.max * 500) + (sh ? 's' : ''), () => { const w = Math.max(0, B.hp / B.max * 100) + '%'; $('#hBossFill').style.width = w; $('#hBossLag').style.width = w; $('#hBoss').classList.toggle('shielded', sh); }); }
+    if (g.boss && !g.boss.dying && !(g.boss.warn > 0)) { const B = g.boss, sh = B.nodes.some(n => !n.dead), fk = B.fillK == null ? 1 : B.fillK; set('bossf', Math.round(B.hp / B.max * fk * 500) + (sh ? 's' : ''), () => { const w = Math.max(0, B.hp / B.max * fk * 100) + '%'; $('#hBossFill').style.width = w; $('#hBossLag').style.width = w; $('#hBoss').classList.toggle('shielded', sh); }); }
     // limite haute du vaisseau remesurée quand le HUD change de hauteur (rangée de compétences, étiquette d'arme, taille de l'écran)
     set('top', C.sk + '|' + C.wpn + '|' + innerWidth + 'x' + innerHeight + '|' + Store.d.set.ts, () => g.hudTop());
   },
@@ -560,7 +661,7 @@ const UI = {
     el.querySelector('b').textContent = q[0]; el.querySelector('span').textContent = q[1]; el.classList.add('on');
     setTimeout(() => { el.classList.remove('on'); setTimeout(() => this.nextBanner(), 380); }, this.bannerQ.length ? 1100 : 1500);
   },
-  bossBar(name) { const el = $('#hBoss'); if (!name) { el.classList.add('hidden'); if (this.hudCache) this.hudCache.bossf = null; return; } $('#hBossName').textContent = name; $('#hBossFill').style.width = $('#hBossLag').style.width = '100%'; el.classList.remove('hidden'); },
+  bossBar(name) { const el = $('#hBoss'); if (!name) { el.classList.add('hidden'); if (this.hudCache) this.hudCache.bossf = null; return; } $('#hBossName').textContent = name; $('#hBossFill').style.width = $('#hBossLag').style.width = '0%'; if (this.hudCache) this.hudCache.bossf = null; el.classList.remove('hidden'); },
   hint(kind) {
     this.hintsShown = this.hintsShown || {}; if (this.hintsShown[kind]) return; this.hintsShown[kind] = true;
     const n = Store.d.seen['h_' + kind] || 0; if (n >= 2) return; Store.d.seen['h_' + kind] = n + 1;
@@ -574,9 +675,11 @@ const UI = {
     const glint = '<svg viewBox="0 0 24 24"><path d="M12 0Q12 12 24 12Q12 12 12 24Q12 12 0 12Q12 12 12 0Z" fill="#FFF"/></svg>';
     const used = Game.slotsUsed(), max = CONFIG.skills.maxActive, slots = `<p class="lv-slots${used >= max ? ' full' : ''}">${tx(used >= max ? 'lvl.full' : 'lvl.slots', { n: used, t: max })}</p>`;
     this.sheet(`<div class="sh-head c"><small>${tx('lvl.over', { n: lvl })}</small><h2>${tx('lvl.title')}</h2>${slots}</div>` + opts.map((s, i) => {
-      const R = RARITY[s.r], n = Game.skills[s.id] || 0, cls = ['', 'com', 'rare', 'epi', 'leg'][s.r];
-      return `<button class="sc ${cls}" data-i="${i}" style="--rc:${R.col}"><canvas class="ic" data-ic="${s.id}"></canvas><span class="tx"><b class="nm">${s.name}</b><span class="rr">${R.name}</span><span class="ds">${s.desc}</span></span>` +
-        `<span class="lv${n ? '' : ' new'}">${n ? tx('lvl.lv', { n: n + 1 }) : tx('lvl.new')}</span>${touch ? '' : `<kbd>${i + 1}</kbd>`}${s.r >= 3 ? `<i class="gl">${glint}</i>` : ''}<canvas class="fr"></canvas></button>`;
+      const R = RARITY[s.r], n = Game.skills[s.id] || 0, cls = ['', 'com', 'rare', 'epi', 'leg'][s.r] + (s.fuse ? ' fuse' : ''), dl = Game.skillDelta(s);
+      const nm = id => SKILLS.find(o => o.id === id).name, fw = SKILLS.find(o => o.fuse && o.fuse.includes(s.id) && !Game.skills[o.id]);
+      const fu = s.fuse ? `<span class="fu">${tx('lvl.fuseOf', { a: nm(s.fuse[0]), b: nm(s.fuse[1]) })}</span>` : fw ? `<span class="fu">${tx('lvl.fuseWith', { n: nm(fw.fuse.find(id => id !== s.id)), f: fw.name })}</span>` : '';
+      return `<button class="sc ${cls}" data-i="${i}" style="--rc:${R.col}"><canvas class="ic" data-ic="${s.id}"></canvas><span class="tx"><b class="nm">${s.name}</b><span class="rr">${R.name}</span><span class="ds">${s.desc}</span>${dl ? `<span class="ba">${dl}</span>` : ''}${fu}</span>` +
+        `<span class="lv${n && !s.fuse ? '' : ' new'}">${s.fuse ? tx('lvl.fusion') : n ? tx('lvl.lv', { n: n + 1 }) : tx('lvl.new')}</span>${touch ? '' : `<kbd>${i + 1}</kbd>`}${s.r >= 3 ? `<i class="gl">${glint}</i>` : ''}<canvas class="fr"></canvas></button>`;
     }).join(''));
     this.paintCards('#sheetBody');
     $$('#sheetBody .sc').forEach(b => b.addEventListener('click', () => this.pickSkill(+b.dataset.i)));
@@ -640,7 +743,7 @@ const UI = {
     this.sheet(`<div class="sh-head c"><small>${where}</small><h2 class="rib">${tx('pause.title')}</h2></div><div class="ak-head">${tx('pause.skills')}</div><div class="ak-list">${sk || `<p class="ak-none">${tx('pause.none')}</p>`}</div>${Dev.on() ? `<div class="optl dev"><select id="pDvSk">${SKILLS.map(s => `<option value="${s.id}"${s.id === Dev.lastSk ? ' selected' : ''}>${s.name}</option>`).join('')}</select><button class="pill small" id="pDvGive">${tx('dev.give')}</button><button class="pill small" id="pDvSkip">${tx('dev.skip')}</button></div>` : ''}<div class="btns pz"><button class="pill primary" id="pRes">${tx('pause.resume')}</button><button class="pill ghost" id="pSet">${tx('profile.settings')}</button><button class="pill ghost" id="pRe">${tx('pause.restart')}</button><button class="pill ghost wide" id="pQuit">${tx('pause.quit')}</button></div>`);
     this.paintCards('#sheetBody');
     $('#pSet').onclick = () => { SFX.play('tap'); this.pauseSettings(); };
-    if (Dev.on()) { $('#pDvGive').onclick = () => { const s = SKILLS.find(x => x.id === (Dev.lastSk = $('#pDvSk').value)); Game.takeSkill(s); Game.state = 'paused'; this.showPause(); }; $('#pDvSkip').onclick = () => { Game.pause(false); Dev.skipWave(Game); }; }
+    if (Dev.on()) { $('#pDvGive').onclick = () => { const s = SKILLS.find(x => x.id === (Dev.lastSk = $('#pDvSk').value)); Game.takeSkill(s); Game.state = 'paused'; this.showPause(); }; $('#pDvSkip').onclick = () => { Game.pause(false, true); Dev.skipWave(Game); }; }
     $('#pRes').onclick = () => Game.pause(false);
     $('#pRe').onclick = () => { SFX.play('tap'); Game.quit(); this.play(this.lastCfg); };
     $('#pQuit').onclick = () => { SFX.play('tap'); this.exitGame(); };
@@ -655,35 +758,49 @@ const UI = {
     const rows = (list) => `<div class="res-rows">${list.map(([k, v], i) => `<div${i === list.length - 1 ? ' class="tot"' : ''}><span>${k}</span><b>${v}</b></div>`).join('')}</div>`;
     const homeB = `<button class="pill ghost ico" id="eHome" aria-label="${tx('end.home')}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11L12 4L20 11V20H14V14H10V20H4Z"/></svg></button>`;
     let head, body = '', btns = '', next = null;
+    const pct = v => Math.round(v * 100) + '\u00a0%', RK = r.rank, rk = RK && RK.cr ? [[tx('end.rankCr'), '+' + fmt(RK.cr)]] : [];
+    const rankRow = RK ? `<div class="rank-row${RK.to > RK.from ? ' up' : ''}"><b>${tx('rank.name', { n: RK.to })}</b><span class="rbar"><i style="width:${Math.round(RK.cur / RK.need * 100)}%"></i></span><small>${tx('rank.xp', { n: RK.xp })}</small></div>` + (RK.to > RK.from ? `<div class="unlock">${tx('rank.up', { n: RK.to, c: fmt(RK.cr) })}</div>` : '') : '';
+    const crBox = `<div class="end-cr" id="eCr"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${ICONS.credit}"/></svg><b>${fmt(Store.d.credits - r.total)}</b></div>`;
     if (r.mode === 'mission' && r.win) {
       // les 3 étoiles, chacune avec ce qui a été réussi ou raté
       const caps = [tx('end.capDone'), tx('end.capHalf'), tx('end.capNoLoss')];
       const st = `<canvas class="res-cv" aria-hidden="true"></canvas><div class="res-caps">${caps.map((cap, i) => `<span class="${r.got[i] ? 'f' : 'x'}"><em>${tx(r.got[i] ? 'end.capOk' : 'end.capKo')}</em>${cap}</span>`).join('')}</div>`
         + (r.perfect ? `<div class="ribbon">${tx('end.perfect')}</div><div class="why">${tx('end.perfectWhy')}</div>` : '');
       head = `<div class="sh-head c"><small>${this.where(r.u, r.m)}</small><h2 class="rib">${tx('end.win')}</h2></div><div class="res-stars${r.perfect ? ' perf' : ''}">${st}</div>`;
-      body = rows([[tx('end.score'), fmt(r.score)], [tx('end.crPicked'), '+' + fmt(r.cr)], [tx(r.first ? 'end.rewardFirst' : 'end.reward'), '+' + fmt(r.reward)], ...(r.perfect ? [[tx('end.perfectBonus'), '+' + fmt(r.bonus)]] : []), [tx('end.total'), '+' + fmt(r.total)]]);
+      body = rows([[tx('end.score'), fmt(r.score)], [tx('end.crPicked'), '+' + fmt(r.cr)], [tx(r.first ? 'end.rewardFirst' : 'end.reward'), '+' + fmt(r.reward)], ...(r.perfect ? [[tx('end.perfectBonus'), '+' + fmt(r.bonus)]] : []), ...(r.ff ? [[tx('end.firstFlight'), '+' + fmt(r.ff)]] : []), ...rk, [tx('end.total'), '+' + fmt(r.total)]]);
       if (r.post) body += `<p class="quote">${tx('quote', { t: r.post })}</p>`;
       if (r.unlock != null) body += `<div class="unlock">${tx('end.unlock', { n: pad2(r.unlock + 1), name: WORLDS[r.unlock].name })}</div>`;
       if (r.omega) body += `<div class="unlock">${tx('end.omega')}</div>`;
+      if (r.unlock === 2) body += `<div class="unlock">${tx('end.infOpen')}</div>`;
       if (r.m < 4) next = { mode: 'mission', u: r.u, m: r.m + 1 }; else if (r.u < WORLDS.length - 1) next = { mode: 'mission', u: r.u + 1, m: 0 };
-      btns = homeB + `<button class="pill ghost" id="eAgain">${tx('end.again')}</button>` + (next ? `<button class="pill primary" id="eNext">${next.m === 4 ? tx('end.boss') : next.u !== r.u ? tx('end.jump', { name: WORLDS[next.u].name }) : tx('end.next')}</button>` : `<button class="pill primary" id="eInf">${tx('end.inf')}</button>`);
+      if (r.ff) btns = homeB + `<button class="pill ghost" id="eNext">${tx('end.next')}</button><button class="pill primary" id="eUpg">${tx('end.upgFirst')}</button>`;
+      else btns = homeB + `<button class="pill ghost" id="eAgain">${tx('end.again')}</button>` + (next ? `<button class="pill primary" id="eNext">${next.m === 4 ? tx('end.boss') : next.u !== r.u ? tx('end.jump', { name: WORLDS[next.u].name }) : tx('end.next')}</button>` : `<button class="pill primary" id="eInf">${tx('end.inf')}</button>`);
     } else if (r.mode === 'mission') {
       head = `<div class="sh-head c"><small>${this.where(r.u, r.m)}</small><h2 class="rib lose">${tx('end.lose')}</h2></div>`;
-      body = rows([[tx('end.score'), fmt(r.score)], [tx('end.kills'), fmt(r.kills)], [tx('end.crKept'), '+' + fmt(r.total)]]);
-      body += `<p class="quote">${tx('end.tip')}</p>`;
-      btns = homeB + `<button class="pill primary wide" id="eAgain">${tx('end.retry')}</button>`;
+      body = rows([[tx('end.score'), fmt(r.score)], [tx('end.kills'), fmt(r.kills)], ...(r.reward ? [[tx('end.effort'), '+' + fmt(r.reward)]] : []), ...rk, [tx('end.crKept'), '+' + fmt(r.total)]]);
+      if (r.farther) body += `<div class="unlock">${tx('end.farther', { a: pct(r.prev), b: pct(r.prog) })}</div>`;
+      else if (r.prog > 0) body += `<p class="prog-line">${tx('end.prog', { n: pct(r.prog) })}</p>`;
+      body += `<p class="quote">${r.fails >= CONFIG.help.after ? tx('end.helpNext') + (r.m === 4 ? ' ' + tx('end.bossEase') : '') : tx('end.tip')}</p>`;
+      btns = homeB + `<button class="pill primary wide huge" id="eAgain">${tx('end.retry')}</button>`;
     } else {
       head = `<div class="sh-head c"><small>${tx('end.infTier', { tier: TIERS[Game.tier].name })}</small><h2 class="rib">${tx(r.best ? 'end.record' : 'end.infOver')}</h2></div>`;
-      body = rows([[tx('end.wave'), r.wave], [tx('end.pal'), r.pal ? palName(r.pal) : tx('end.palNone')], [tx('end.score'), fmt(r.score)], [tx('end.comboMax'), r.combo], [tx('end.credits'), '+' + fmt(r.total)]]);
-      btns = homeB + `<button class="pill primary wide" id="eAgain">${tx('end.again')}</button>`;
+      body = rows([[tx('end.wave'), r.wave], [tx('end.pal'), r.pal ? palName(r.pal) : tx('end.palNone')], [tx('end.score'), fmt(r.score)], [tx('end.comboMax'), r.combo], ...rk, [tx('end.credits'), '+' + fmt(r.total)]]);
+      btns = homeB + `<button class="pill primary wide huge" id="eAgain">${tx('end.again')}</button>`;
     }
-    this.sheet(head + body + this.buildRow() + `<div class="btns end">${btns}</div>`);
+    this.sheet(crBox + head + body + rankRow + this.buildRow() + `<div class="btns end">${btns}</div>`);
     this.paintCards('#sheetBody');
-    if (r.win && r.mode === 'mission') { Plat.draw($('#sheetBody .res-cv'), r.stars, r.perfect); for (let i = 0; i < r.stars; i++) setTimeout(() => SFX.play('star'), 200 + i * 160); if (r.perfect) setTimeout(() => { SFX.play('perfect'); SFX.vib([20, 40, 20]); }, 760); }
+    // étoiles qui claquent : une à une, chacune avec son éclat, son claquement et sa légende
+    if (r.win && r.mode === 'mission') {
+      const cv = $('#sheetBody .res-cv'), caps = $$('#sheetBody .res-caps span'); Plat.draw(cv, r.stars, r.perfect);
+      for (let i = 0; i < r.stars; i++) setTimeout(() => { if (!cv.isConnected) return; if (caps[i]) this.pop(caps[i]); SFX.play('star'); SFX.vib(10, 1); }, 370 + i * 300);
+      if (r.perfect) setTimeout(() => { if (cv.isConnected) { SFX.play('perfect'); SFX.vib([20, 40, 20]); } }, 1150);
+    }
+    this.coinsFly(r.total, r.win && r.mode === 'mission' ? 400 + r.stars * 300 : 350);
     const bind = (id, fn) => { const el = $(id); if (el) el.onclick = () => { SFX.play('tap'); fn(); }; };
     bind('#eHome', () => { if (next) { this.sel.u = next.u; this.sel.m = next.m; } this.exitGame(); });
-    bind('#eAgain', () => { Game.quit(); this.play(this.lastCfg); });
+    bind('#eAgain', () => { Game.quit(); const c = Object.assign({}, this.lastCfg); delete c.help; this.play(c); });
     bind('#eInf', () => { this.exitGame(); this.go('s-inf'); });
+    bind('#eUpg', () => { if (next) { this.sel.u = next.u; this.sel.m = next.m; } this.exitGame(); this.hangarFocus(); });
     bind('#eNext', () => {
       Game.quit(); this.sel.u = next.u; this.sel.m = next.m; this.refresh();
       if (next.m === 0 && !Store.d.seen['b' + next.u]) { this.hideSheet(); $('#s-game').classList.remove('on'); this.brief(next.u, () => this.play(next)); }
@@ -691,6 +808,35 @@ const UI = {
     });
   },
 
+  pop(el) { el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop'); },
+  // pièces aspirées vers le compteur : elles partent de la ligne du total et le compteur monte à chaque arrivée
+  coinsFly(total, delay) {
+    const box = $('#eCr'), from = $('#sheetBody .res-rows .tot b'); if (!box) return; const b = box.querySelector('b'), end = Store.d.credits, start = end - total;
+    if (!total || !from || matchMedia('(prefers-reduced-motion: reduce)').matches) { b.textContent = fmt(end); return; }
+    const n = clamp(Math.round(total / 60), 4, 12); let got = 0;
+    setTimeout(() => {
+      if (!box.isConnected) return; const A = from.getBoundingClientRect(), B = box.getBoundingClientRect();
+      for (let i = 0; i < n; i++) {
+        const el = document.createElement('i'); el.className = 'fly-cr'; el.innerHTML = `<svg viewBox="0 0 24 24"><path d="${ICONS.credit}"/></svg>`; document.body.appendChild(el);
+        const x0 = A.left + A.width / 2 + (Math.random() - 0.5) * 60, y0 = A.top + A.height / 2, x1 = B.left + 18, y1 = B.top + B.height / 2;
+        const an = el.animate([{ transform: `translate(${x0}px,${y0}px) scale(.6)`, opacity: 0 }, { transform: `translate(${x0 + (Math.random() - 0.5) * 80}px,${y0 - 50}px) scale(1.1)`, opacity: 1, offset: 0.3 }, { transform: `translate(${x1}px,${y1}px) scale(.7)`, opacity: 1 }], { duration: 620, delay: i * 70, easing: 'cubic-bezier(.5,0,.75,.2)', fill: 'both' });
+        an.onfinish = () => { el.remove(); got++; if (!box.isConnected) return; b.textContent = fmt(got >= n ? end : Math.round(start + total * got / n)); this.pop(box); SFX.play('cr', 30); if (got === n) SFX.vib(8, 1); };
+      }
+    }, delay);
+  },
+  // prochain objectif affiché sur l'accueil (PLAISIR §19) : la suite de la progression, puis le hangar ou les fusions
+  nextGoals() {
+    const d = Store.d, out = []; const gi = d.done.findIndex(x => !x);
+    if (gi >= 0) { const u = Math.floor(gi / 5), m = gi % 5; out.push(m === 4 && u < WORLDS.length - 1 ? tx('goal.boss', { b: WORLDS[u].boss.name, n: pad2(u + 2) }) : tx('goal.mission', { n: pad2(u + 1) + '-' + (m + 1) })); }
+    const nx = CHASSIS_ORDER.find(id => !d.owned.includes(id) && CHASSIS[id].price > 0);
+    if (nx) out.push(d.credits >= CHASSIS[nx].price ? tx('goal.shipReady', { n: CHASSIS[nx].name }) : tx('goal.ship', { n: CHASSIS[nx].name, c: fmt(CHASSIS[nx].price - d.credits) }));
+    else { const fu = SKILLS.filter(s => s.fuse); out.push(tx('goal.fus', { n: fu.filter(s => d.fus[s.id]).length, t: fu.length })); }
+    return out;
+  },
+  renderGoal() {
+    const el = $('#homeGoal'); if (!el) return;
+    el.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3V8M12 16V21M3 12H8M16 12H21M12 6A6 6 0 1 0 12.01 6"/></svg><span><small>${tx('goal.title')}</small>${this.nextGoals().map(g => `<b>${g}</b>`).join('')}</span>`;
+  },
   /* ---------- héros animés (accueil & hangar) ---------- */
   sizeHeroes() {
     for (const id of ['#heroHome', '#heroHangar']) {
@@ -734,7 +880,7 @@ const UI = {
     c.strokeStyle = 'rgba(255,255,255,.07)'; c.lineWidth = 1.4; c.beginPath();
     for (let x = 0; x <= w; x += 4) { const y = h * 0.54 + Math.sin(x * 0.02 + t * 1.3) * h * 0.06 * Math.sin(t * 0.5 + x * 0.004); x ? c.lineTo(x, y) : c.moveTo(x, y); }
     c.stroke();
-    const spr = mode === 'home' ? (WORLDS[u].vehicle || CHASSIS[Store.d.ship].spr) : CHASSIS[this.sel.ship].spr;
+    const spr = mode === 'home' ? craftFor('mission', u, this.sel.m, Store.d.ship).spr : CHASSIS[this.sel.ship].spr;
     const D = Art.DEF[spr], box = Math.min(w * 0.6, h * (mode === 'home' ? 0.56 : 0.6));
     let px = box * D.w / Math.max(D.w, D.h); if (D.h < D.w * 0.6) px = Math.min(w * 0.82, box * 1.6);
     const x = w / 2, y = h * (mode === 'home' ? 0.56 : 0.5) + Math.sin(t * 1.4) * h * 0.012, sc = px / D.w;
@@ -750,6 +896,7 @@ const UI = {
     Art.flames(c, D, x, y, sc, t);
     const locked = mode === 'hangar' && !Store.d.owned.includes(this.sel.ship) && CHASSIS[this.sel.ship].price < 0;
     Art.draw(c, spr, x, y, px, Math.sin(t * 0.7) * 0.025, false, locked ? 0.22 : 1);
+    if (mode === 'hangar' && !locked) { const id = this.sel.ship; Art.parts(c, spr, x, y, px, Math.sin(t * 0.7) * 0.025, { cannon: Store.upg('cannon', id), hull: Store.upg('hull', id), rate: Store.upg('rate', id) }); }
     if (mode === 'hangar' && this.shipSwap) c.restore();
   },
   // socle hexagonal en perspective (plateau métal, tranche, arête éclairée froide, faisceau montant)

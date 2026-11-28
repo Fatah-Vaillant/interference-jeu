@@ -56,7 +56,7 @@ const WORLDS = [
 
   /* ===================== 02 · DE LA TERRE À LA LUNE, 1865 ===================== */
   {
-    key: 'columbiad', year: '1865', accent: '#E3C68E', bgc: '#0C1020',
+    key: 'columbiad', year: '1865', accent: '#E3C68E', bgc: '#0C1020', era: 'columbiad',
     view: 'top', vehicle: null, move: 'free', boom: 'brass', light: false,
     enemies: ['w2a', 'w2b', 'w2c', 'w2d', 'w2e', 'w2m'], scale: [1.7, 1.2, 1.55, 1.7, 1.2, 1.6],
     eb: 'b_cog', eb2: 'b_ball', esfx: 'e_tick',
@@ -131,7 +131,7 @@ const WORLDS = [
     key: 'somme', year: '1917', accent: '#C9B48A', bgc: '#3A352E',
     view: 'side', vehicle: 'tank', move: 'x', boom: 'smoke', light: true, ground: true,
     enemies: ['w4a', 'w4b', 'w4c', 'w4d', 'w4e', 'w4d'], scale: [1.45, 1.45, 1.8, 1.45, 1.35, 1.05],
-    eb: 'b_bomb', eb2: 'b_tracer', esfx: 'e_mg',
+    eb: 'b_bomb', eb2: 'b_tracer', esfx: 'e_mg', bspeed: 0.85, // char : on n'esquive qu'à l'horizontale, tirs du boss plus lents (défi juste)
     boss: { spr: 'w4boss', w: 500, ty: 0.22, move: 'drift', pats: ['bombs', 'aimed', 'wall', 'rain'],
       nodes: { mode: 'fixed', spr: 'w4n', w: 66, pts: [[-135, 72], [-39, 74], [57, 74]] } },
     bgStatic(c) {
@@ -334,7 +334,7 @@ const WORLDS = [
     bgDyn(c, t, g) {
       c.save(); c.translate(W / 2, H * 0.38); c.rotate(t * 0.05); c.strokeStyle = 'rgba(233,201,121,.1)'; c.lineWidth = 2; c.stroke(Art.path(Art.STAR(16, 270, 220))); c.restore();
       const lvl = g ? (g.mode === 'inf' ? 2 : g.m) : 1;
-      const k = Math.floor(t * 9), r = seeded(k + 1);
+      const k = Math.floor(t * 3), r = seeded(k + 1); // bandes de brouillage : 3 changements par seconde au plus
       if (r() < 0.25 + lvl * 0.12) for (let i = 0; i < 2 + lvl; i++) { const y = r() * H, h = 2 + r() * 14; c.fillStyle = r() < 0.5 ? 'rgba(0,0,0,.55)' : 'rgba(255,255,255,.06)'; c.fillRect(0, y, W, h); }
     },
   },
@@ -342,7 +342,7 @@ const WORLDS = [
      Tout l'écran de jeu passe en noir et blanc (classe « bw » posée par UI.worldTheme) ; grain, poussières,
      rayures et papillotement par-dessus (overlay), ouverture et fermeture à l'iris, briefing en cartons. */
   {
-    key: 'muet', year: '1902', accent: '#E8E6E0', bgc: '#101010', bw: true, silent: true,
+    key: 'muet', year: '1902', accent: '#E8E6E0', bgc: '#101010', bw: true, silent: true, era: 'columbiad',
     view: 'top', vehicle: null, move: 'free', boom: 'film', light: false,
     enemies: ['w11a', 'w11b', 'w11c', 'w11d', 'w11e', 'w11m'], scale: [1.2, 1.3, 1.45, 1.65, 1.45, 1.2],
     eb: 'b_star', eb2: 'b_ball', esfx: 'e_tick',
@@ -359,8 +359,9 @@ const WORLDS = [
     bgDyn() {},
     overlay(c, t, g) {
       // pellicule : papillotement, poussières (changent 12 fois par seconde), rayures verticales, coins arrondis de la fenêtre
-      const k = Math.floor(t * 12), r = seeded(k * 7 + 3), calm = Store.d.set.calm;
-      const fl = 0.025 + r() * 0.04; c.fillStyle = r() < 0.5 ? `rgba(255,255,255,${fl * (calm ? 0.3 : 1)})` : `rgba(0,0,0,${fl * 1.6 * (calm ? 0.3 : 1)})`; c.fillRect(0, 0, W, H);
+      // papillotement plein écran : variation lente et continue (moins d'une oscillation par seconde, jamais un flash), poussières à part
+      const k = Math.floor(t * 12), r = seeded(k * 7 + 3), calm = Store.d.set.calm, fv = 0.04 * Math.sin(t * 4.1) * Math.sin(t * 1.3);
+      c.fillStyle = fv > 0 ? `rgba(255,255,255,${fv * (calm ? 0.3 : 1)})` : `rgba(0,0,0,${-fv * 1.6 * (calm ? 0.3 : 1)})`; c.fillRect(0, 0, W, H);
       if (!calm) {
         for (let i = 0; i < 9; i++) { const x = r() * W, y = r() * H, s = 1 + r() * 2.4; c.fillStyle = r() < 0.6 ? 'rgba(0,0,0,.55)' : 'rgba(255,255,255,.4)'; c.fillRect(x, y, s, s * (0.6 + r() * 2.2)); }
         if (r() < 0.25) { c.strokeStyle = 'rgba(0,0,0,.35)'; c.lineWidth = 1; const x = r() * W; c.beginPath(); c.moveTo(x, r() * H * 0.3); c.quadraticCurveTo(x + 8, H * 0.5, x + r() * 20 - 10, H * (0.6 + r() * 0.4)); c.stroke(); }
@@ -381,7 +382,7 @@ const WORLDS = [
      Caméra inclinée au-dessus d'un plan-relief : horizon haut, sol en perspective qui défile, ennemis qui
      surgissent de l'horizon et grossissent en approchant (Game.depthK), ombres portées au sol. */
   {
-    key: 'relief', year: '1848', accent: '#E2C089', bgc: '#4F5A3A', persp: true, light: true, dynEvery: 2,
+    key: 'relief', year: '1848', accent: '#E2C089', bgc: '#4F5A3A', persp: true, light: true, dynRes: 1, era: 'columbiad',
     view: 'top', vehicle: null, move: 'free', boom: 'relief',
     get horizon() { return Math.round(H * 0.17); },
     get formY() { return Math.round(H * 0.3); },
@@ -401,7 +402,9 @@ const WORLDS = [
       const hz = this.horizon, gy = H - hz, cx = W / 2, sp = 0.9, T = t * sp, off = T % 1, base = Math.floor(T), r = seeded(1848);
       const yz = z => hz + gy * 1.2 / z;
       const XB = [-9, -5.5, -3.2, -1.7, -0.95, -0.5, -0.16, 0.16, 0.5, 0.95, 1.7, 3.2, 5.5, 9].map(v => v * W * 0.62), nc = XB.length - 1;
-      // parcelles : rangées en perspective qui avancent vers le joueur
+      // parcelles : rangées en perspective qui avancent vers le joueur ; regroupées par couleur (un seul remplissage par couleur :
+      // le sol est repeint à chaque image, retours n° 3), les rangées proches recouvrent les lointaines dans l'ordre des couleurs
+      const F = this._fields, paths = F.map(() => new Path2D()), roofs = new Path2D(), walls = new Path2D(), river = new Path2D();
       for (let n = 15; n >= 1; n--) {
         const z0 = Math.max(0.6, n - off), z1 = n + 1 - off, y0 = yz(z0), y1 = yz(z1); if (y1 > H) continue;
         const row = base + 20 - n;
@@ -410,23 +413,29 @@ const WORLDS = [
           const a0 = XB[j] / z0, a1 = XB[j + 1] / z0, b0 = XB[j] / z1, b1 = XB[j + 1] / z1;
           if (cx + a1 < 0 || cx + a0 > W) continue; // parcelle hors écran
           // une parcelle sur deux garde la couleur du sol de fond (moitié moins de surface à peindre)
-          if ((h >> 3) % 2 && (n < 12 || j % 3 === 0)) { c.fillStyle = this._fields[h % this._fields.length]; c.beginPath(); c.moveTo(cx + b0, y1); c.lineTo(cx + b1, y1); c.lineTo(cx + a1, y0); c.lineTo(cx + a0, y0); c.closePath(); c.fill(); }
+          if ((h >> 3) % 2 && (n < 12 || j % 3 === 0)) { const P = paths[h % F.length]; P.moveTo(cx + b0, y1); P.lineTo(cx + b1, y1); P.lineTo(cx + a1, y0); P.lineTo(cx + a0, y0); P.closePath(); }
           // maisonnettes de la maquette (toits rouges) sur certaines parcelles
           if (h % 5 === 0 && n < 9) { const m = (XB[j] + XB[j + 1]) / 2 / ((z0 + z1) / 2), y = (y0 + y1) / 2, s = 26 / ((z0 + z1) / 2) + 1;
-            c.fillStyle = '#D8CCB0'; c.fillRect(cx + m - s, y - s * 0.4, s * 2, s * 0.8); c.fillStyle = '#9A4E34'; c.fillRect(cx + m - s, y - s * 0.4, s * 2, s * 0.35); }
+            walls.rect(cx + m - s, y - s * 0.4, s * 2, s * 0.8); roofs.rect(cx + m - s, y - s * 0.4, s * 2, s * 0.35); }
         }
         // rivière qui serpente (sa position suit la rangée)
         const rx0 = Math.sin((row) * 0.45) * W * 0.5, rx1 = Math.sin((row - 1) * 0.45) * W * 0.5, w = W * 0.09;
-        c.fillStyle = '#6F8C92'; c.beginPath(); c.moveTo(cx + (rx1 - w) / z1, y1); c.lineTo(cx + (rx1 + w) / z1, y1); c.lineTo(cx + (rx0 + w) / z0, y0); c.lineTo(cx + (rx0 - w) / z0, y0); c.closePath(); c.fill();
+        river.moveTo(cx + (rx1 - w) / z1, y1); river.lineTo(cx + (rx1 + w) / z1, y1); river.lineTo(cx + (rx0 + w) / z0, y0); river.lineTo(cx + (rx0 - w) / z0, y0); river.closePath();
       }
-      // haies : limites des parcelles
+      F.forEach((col, i) => { c.fillStyle = col; c.fill(paths[i]); });
+      c.fillStyle = '#6F8C92'; c.fill(river); c.fillStyle = '#D8CCB0'; c.fill(walls); c.fillStyle = '#9A4E34'; c.fill(roofs);
+      // haies : limites des parcelles (horizontales en simples bandes, moins coûteuses qu'un trait lissé ; le sol est repeint à chaque image)
+      c.fillStyle = 'rgba(52,62,32,.55)';
+      for (let n = 1; n <= 15; n++) { const y = yz(n + 1 - off); if (y < H) c.fillRect(0, y - 0.6, W, 1.2); }
       c.strokeStyle = 'rgba(52,62,32,.55)'; c.lineWidth = 1.2; c.beginPath();
-      for (let n = 1; n <= 15; n++) { const y = yz(n + 1 - off); if (y < H) { c.moveTo(0, y); c.lineTo(W, y); } }
       for (const xb of XB) { c.moveTo(cx + xb / 0.6, yz(0.6)); c.lineTo(cx + xb / 16, yz(16)); }
       c.stroke();
-      // brume de l'horizon
-      if (!this._fog || this._fogH !== H) { this._fogH = H; const g = c.createLinearGradient(0, hz - 4, 0, hz + 70); g.addColorStop(0, 'rgba(228,220,196,.95)'); g.addColorStop(1, 'rgba(228,220,196,0)'); this._fog = g; }
-      c.fillStyle = this._fog; c.fillRect(0, hz - 4, W, 74);
+      // brume de l'horizon : dégradé peint une fois dans une bande, recopiée à chaque image
+      if (!this._fog || this._fogW !== W) {
+        this._fogW = W; const fc = document.createElement('canvas'); fc.width = Math.ceil(W); fc.height = 74; const g2 = fc.getContext('2d'), g = g2.createLinearGradient(0, 0, 0, 74);
+        g.addColorStop(0, 'rgba(228,220,196,.95)'); g.addColorStop(1, 'rgba(228,220,196,0)'); g2.fillStyle = g; g2.fillRect(0, 0, fc.width, 74); this._fog = fc;
+      }
+      c.drawImage(this._fog, 0, hz - 4);
     },
   },
 

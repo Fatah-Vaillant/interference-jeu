@@ -62,18 +62,33 @@ const Icons = (() => {
     // écho : un double translucide suit le vaisseau
     echo: { c: '#9FD3E6', L: [ship(8, 15.5, 1.25, '#9FD3E6', 0.5), { s: 'M3.5 21L5 19.5M6.5 22.5L8 21', w: 1.4, a: 0.6 }, ship(15, 10, 1.4)] },
   };
+  // fusions : les deux icônes d'origine en diagonale, reliées par un « + » doré
+  const FU = { fRico: ['bounce', 'pierce'], fSquad: ['drone', 'rate'], fStorm: ['storm', 'crit'], fCrown: ['orbit', 'shards'], fFrost: ['freeze', 'diag'], fBlaze: ['fever', 'dmg'], fWall: ['hull', 'onde'], fPull: ['magnet', 'graze'] };
+  Object.assign(ART, {
+    fRico: { c: '#F2B84B', fuse: FU.fRico, L: [] }, fSquad: { c: '#F2B84B', fuse: FU.fSquad, L: [] }, fStorm: { c: '#F2B84B', fuse: FU.fStorm, L: [] }, fCrown: { c: '#F2B84B', fuse: FU.fCrown, L: [] },
+    fFrost: { c: '#F2B84B', fuse: FU.fFrost, L: [] }, fBlaze: { c: '#F2B84B', fuse: FU.fBlaze, L: [] }, fWall: { c: '#F2B84B', fuse: FU.fWall, L: [] }, fPull: { c: '#F2B84B', fuse: FU.fPull, L: [] },
+  });
   for (const A of Object.values(ART)) A.p = A.L.map(l => new Path2D(l.s || l.f));
-
-  function paint(cv, id, px) {
-    cv.width = cv.height = Math.round(px * 2); const c = cv.getContext('2d'), A = ART[id] || ART.dmg, k = px * 2 / 24;
-    c.fillStyle = '#000'; c.fillRect(0, 0, cv.width, cv.height);
-    c.setTransform(k * 0.84, 0, 0, k * 0.84, px * 2 * 0.08, px * 2 * 0.08); c.lineCap = 'round'; c.lineJoin = 'round';
+  const PLUS = new Path2D('M5.5 15V22M2 18.5H9');
+  function layers(c, A) {
     A.L.forEach((l, i) => {
       const P = A.p[i], col = l.col || A.c; c.globalAlpha = l.a ?? 1; c.setLineDash(l.dash || []);
       if (l.f) { c.fillStyle = col; c.fill(P); c.setLineDash([]); c.strokeStyle = '#07080A'; c.lineWidth = 1.1; c.stroke(P); }
       else { c.strokeStyle = '#07080A'; c.lineWidth = (l.w || 2) + 1.6; c.stroke(P); c.strokeStyle = col; c.lineWidth = l.w || 2; c.stroke(P); }
     });
-    c.globalAlpha = 1; c.setLineDash([]); return cv;
+    c.globalAlpha = 1; c.setLineDash([]);
+  }
+
+  function paint(cv, id, px) {
+    cv.width = cv.height = Math.round(px * 2); const c = cv.getContext('2d'), A = ART[id] || ART.dmg, k = px * 2 / 24;
+    c.fillStyle = '#000'; c.fillRect(0, 0, cv.width, cv.height);
+    c.setTransform(k * 0.84, 0, 0, k * 0.84, px * 2 * 0.08, px * 2 * 0.08); c.lineCap = 'round'; c.lineJoin = 'round';
+    if (A.fuse) {
+      const sub = (S, dx, dy) => { c.save(); c.translate(dx, dy); c.scale(0.6, 0.6); layers(c, S); c.restore(); };
+      sub(ART[A.fuse[0]], 0, 0); sub(ART[A.fuse[1]], 9.6, 9.6);
+      c.lineCap = 'round'; c.strokeStyle = '#07080A'; c.lineWidth = 4.4; c.stroke(PLUS); c.strokeStyle = A.c; c.lineWidth = 2.8; c.stroke(PLUS);
+    } else layers(c, A);
+    return cv;
   }
   const canvas = (id, px) => paint(document.createElement('canvas'), id, px);
   // cadre net autour d'une carte (canvas superposé), à la couleur de rareté

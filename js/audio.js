@@ -75,7 +75,12 @@ const SFX = (() => {
     e_servo:  () => N(0.07, 3600, 2, 0.04, 'bandpass', 1800),
     e_glitch: () => { N(0.03, 6000, 8, 0.05); setTimeout(() => ctx && N(0.02, 900, 8, 0.05), 30); },
     // impacts
-    hit:      () => N(0.035, 3600, 5, 0.06),
+    // frappe : jamais deux fois la même (hauteur et timbre tirés à chaque coup)
+    hit:      () => N(0.03 + Math.random() * 0.015, 3000 + Math.random() * 1400, 4 + Math.random() * 3, 0.055),
+    // combo : petit claquement de bruit filtré, un demi-ton plus haut à chaque palier (k), jamais une suite de notes
+    combo:    (k = 0) => N(0.07, 1800 * Math.pow(2, Math.min(k, 18) / 12), 9, 0.07),
+    comboBreak: () => N(0.18, 900, 1.2, 0.07, 'lowpass', 200),
+    alarm:    () => { N(0.32, 700, 6, 0.10, 'bandpass', 1100); },
     crit:     () => N(0.06, 5200, 3, 0.09, 'highpass'),
     shield:   () => N(0.07, 6200, 10, 0.07),
     pop:      () => N(0.14, 1300, 0.9, 0.12, 'bandpass', 260),
@@ -90,6 +95,10 @@ const SFX = (() => {
     xp:       () => N(0.02, 8000, 10, 0.02),
     gift:     () => { S(300, 1800, 0.16, 0.05, 'triangle'); N(0.16, 2000, 1, 0.05, 'bandpass', 6000); },
     up:       () => { S(500, 2600, 0.22, 0.05, 'triangle'); },
+    // fusion / forme ultime : souffle qui monte et scintillement
+    fuse:     () => { N(0.9, 500, 0.8, 0.16, 'bandpass', 6000, 0.35); S(220, 1800, 0.7, 0.05, 'triangle', 0.3); },
+    // petite fanfare de la capsule : deux glissés montants puis un éclat (bruitage, aucune mélodie)
+    fanfare:  () => { S(420, 1300, 0.16, 0.05, 'triangle'); setTimeout(() => ctx && S(640, 2000, 0.2, 0.05, 'triangle'), 110); setTimeout(() => ctx && N(0.5, 5200, 2, 0.08, 'bandpass', 9000, 0.05), 230); },
     level:    () => { N(0.6, 300, 0.7, 0.12, 'bandpass', 4000, 0.2); S(200, 900, 0.5, 0.05, 'sine', 0.2); },
     // onde & ultime
     ready:    () => { N(0.05, 3000, 6, 0.08); setTimeout(() => ctx && N(0.05, 3000, 6, 0.08), 110); },
@@ -107,14 +116,23 @@ const SFX = (() => {
 
   return {
     init,
-    play(n, gap = 26) {
+    play(n, gap = 26, arg) {
       if (!ctx || vol <= 0 || !lib[n]) return;
       const now = performance.now(); if (last[n] && now - last[n] < gap) return; last[n] = now;
       dest = n.startsWith('e_') ? ebus : master;
-      try { lib[n](); } catch (e) { /* audio indisponible */ }
+      try { lib[n](arg); } catch (e) { /* audio indisponible */ }
       dest = master;
     },
     setVol(v) { vol = v; if (master) master.gain.value = v; },
-    vib(ms) { try { if (Store.d && Store.d.set.vib && navigator.vibrate) navigator.vibrate(ms); } catch (e) { /* non supporté */ } },
+    // vibrations dosées (retours n° 3) : désactivables (réglage « Vibrer »), jamais plus d'une toutes les CONFIG.feel.vibGap ms ;
+    // force : 1 = discrète (destructions, combo), 2 = coup reçu, 3 = événement (boss, ultime) — les discrètes cèdent la place aux autres
+    vib(ms, force = 2) {
+      try {
+        if (!Store.d || !Store.d.set.vib || !navigator.vibrate) return;
+        const now = performance.now(), gap = (CONFIG.feel && CONFIG.feel.vibGap) || 110;
+        if (now - (this.vT || -1e9) < gap * (force >= 3 ? 0.3 : 1) && force <= (this.vF || 0)) return;
+        this.vT = now; this.vF = force; navigator.vibrate(ms);
+      } catch (e) { /* non supporté */ }
+    },
   };
 })();

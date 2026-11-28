@@ -95,6 +95,16 @@ const SKILLS = [
   { id: 'revive', r: 4, max: 1, fx: [{ stat: 'revive', add: 1 }] },
   { id: 'fever', r: 4, max: 1, fx: [{ stat: 'fever', add: 0.3 }] },
   { id: 'echo', r: 2, max: 2, need: 'echoOn', fx: [{ stat: 'echo', base: 0.1, add: 0.25 }] }, // idée du bloc 4 devenue compétence (bilan, point 1)
+  // fusions (PLAISIR §11) : deux compétences montées au maximum fusionnent en une nouvelle (une fois par partie).
+  // fuse = les deux compétences d'origine ; la carte de fusion est toujours proposée dès qu'elle est possible ; n'occupe pas d'emplacement.
+  { id: 'fRico', r: 4, max: 1, fuse: ['bounce', 'pierce'], fx: [{ stat: 'pierce', add: 2 }, { stat: 'rico', add: 0.6 }] },
+  { id: 'fSquad', r: 4, max: 1, fuse: ['drone', 'rate'], fx: [{ stat: 'drones', add: 2 }, { stat: 'droneRate', add: 1 }] },
+  { id: 'fStorm', r: 4, max: 1, fuse: ['storm', 'crit'], fx: [{ stat: 'storm', add: 2 }, { stat: 'crit', add: 0.15 }] },
+  { id: 'fCrown', r: 4, max: 1, fuse: ['orbit', 'shards'], fx: [{ stat: 'orbs', add: 2 }, { stat: 'shards', add: 4 }] },
+  { id: 'fFrost', r: 4, max: 1, fuse: ['freeze', 'diag'], fx: [{ stat: 'freeze', add: 0.12 }, { stat: 'diag', add: 2 }] },
+  { id: 'fBlaze', r: 4, max: 1, fuse: ['fever', 'dmg'], fx: [{ stat: 'fever', add: 0.4 }, { stat: 'dmg', add: 0.25 }] },
+  { id: 'fWall', r: 4, max: 1, fuse: ['hull', 'onde'], fx: [{ stat: 'ondeCharge', add: 0.4 }], take: { shieldMax: 1, shield: 2 } },
+  { id: 'fPull', r: 4, max: 1, fuse: ['magnet', 'graze'], fx: [{ stat: 'magnet', add: 1 }, { stat: 'grazeGain', add: 1 }, { stat: 'grazeBuff', add: 2 }] },
 ];
 // statistiques que le moteur sait lire (une compétence peut en combiner plusieurs)
 const STATS = {
@@ -102,7 +112,7 @@ const STATS = {
   pierce: 'tirs traversant x ennemis de plus', bounce: 'rebonds des tirs', crit: 'chance de critique +x', drones: 'drones d\'appui', orbs: 'orbes en orbite',
   freeze: 'chance de geler (par tir)', shards: 'éclats à la destruction', diag: 'paires de tirs obliques', rico: 'ricochet vers l\'ennemi voisin (part des dégâts)',
   storm: 'éclair tous les 10 impacts (cibles touchées)', grazeGain: 'gain des frôlements +x', grazeBuff: 'secondes de bonus de dégâts après un frôlement',
-  revive: 'revient une fois par mission', fever: 'dégâts +x au-delà de 25 de combo', echo: 'double du vaisseau qui rejoue ta trajectoire et tire (part des dégâts)',
+  revive: 'revient une fois par mission', droneRate: 'cadence des drones +x (part)', fever: 'dégâts +x au-delà de 25 de combo', echo: 'double du vaisseau qui rejoue ta trajectoire et tire (part des dégâts)',
 };
 // statistiques entières (un nombre de tirs, d'orbes, de drones…) : pas de gains décroissants
 const INT_STATS = new Set(['pierce', 'bounce', 'drones', 'orbs', 'shards', 'diag', 'storm', 'revive']);
@@ -112,16 +122,33 @@ const RARITY = { 1: { col: '#EEF0F2', w: 10 }, 2: { col: '#4FA3FF', w: 5 }, 3: {
 // Châssis du hangar (prix fixes, en crédits gagnés en jeu)
 // hp = points de coque (PV), sh = charges de bouclier. Ordre du hangar = ordre de puissance : la navette de départ est
 // nettement faible, chaque vaisseau suivant est clairement plus fort (contrôlé par tests/run.js).
+// pas = capacité passive unique (retours n° 3, ANALYSE §3.2), texte lang.js ch.<id>.passive, effet lu par le moteur :
+//   regen : le bouclier se recharge plus vite · crit : critiques · onde : charge de l'onde · graze : frôlements élargis et payés double
+//   phase : traverse les tirs après l'Onde · drone : drone d'escorte · ultc : charge de l'ultime · omega : l'Onde charge aussi l'Ultime
 const CHASSIS = {
-  if50:     { spr: 'if50', pw: 78, hp: 3, sh: 1, speed: 340, dmg: 0.85, fire: 0.9, ult: 'beam' },
-  lame:     { spr: 'lame', pw: 74, hp: 3, sh: 1, speed: 430, dmg: 1, fire: 1, crit: 0.1, ult: 'blades' },
-  columbiad:{ spr: 'columbiad', pw: 32, hp: 4, sh: 1, speed: 360, dmg: 1.05, fire: 1, onde: 0.25, ult: 'shell' },
-  concorde: { spr: 'concorde', pw: 52, hp: 4, sh: 1, speed: 470, dmg: 1.1, fire: 1.12, ult: 'boom' },
-  nautilus: { spr: 'nautilus', pw: 28, hp: 5, sh: 2, speed: 380, dmg: 1.15, fire: 1.1, pierce: 1, ult: 'ram' },
-  bastion:  { spr: 'bastion', pw: 70, hp: 7, sh: 1, speed: 330, dmg: 1.15, fire: 1.05, drone: 1, ult: 'orbital' },
-  apollo:   { spr: 'apollo', pw: 32, hp: 6, sh: 2, speed: 420, dmg: 1.3, fire: 1.25, ultc: 0.3, ult: 'saturn' },
-  omega:    { spr: 'omega', pw: 64, hp: 7, sh: 3, speed: 460, dmg: 1.4, fire: 1.3, onde: 0.15, ultc: 0.15, ult: 'reset' },
+  if50:     { spr: 'if50', pw: 78, hp: 3, sh: 1, speed: 340, dmg: 0.85, fire: 0.9, ult: 'beam', pas: 'regen', regenK: 0.7 },
+  lame:     { spr: 'lame', pw: 74, hp: 3, sh: 1, speed: 430, dmg: 1, fire: 1, crit: 0.1, ult: 'blades', pas: 'crit' },
+  columbiad:{ spr: 'columbiad', pw: 32, hp: 4, sh: 1, speed: 360, dmg: 1.05, fire: 1, onde: 0.25, ult: 'shell', pas: 'onde' },
+  concorde: { spr: 'concorde', pw: 52, hp: 4, sh: 1, speed: 470, dmg: 1.1, fire: 1.12, ult: 'boom', pas: 'graze' },
+  nautilus: { spr: 'nautilus', pw: 28, hp: 5, sh: 2, speed: 380, dmg: 1.15, fire: 1.1, pierce: 1, ult: 'ram', pas: 'phase' },
+  bastion:  { spr: 'bastion', pw: 70, hp: 7, sh: 1, speed: 330, dmg: 1.15, fire: 1.05, drone: 1, ult: 'orbital', pas: 'drone' },
+  apollo:   { spr: 'apollo', pw: 32, hp: 6, sh: 2, speed: 420, dmg: 1.3, fire: 1.25, ultc: 0.3, ult: 'saturn', pas: 'ultc' },
+  omega:    { spr: 'omega', pw: 64, hp: 7, sh: 3, speed: 460, dmg: 1.4, fire: 1.3, onde: 0.15, ultc: 0.15, ult: 'reset', pas: 'omega' },
 };
+// univers « espace » : le joueur y choisit librement son vaisseau ; les univers historiques imposent leur véhicule d'époque
+// (Wd.vehicle : char, sous-marin, Laté 28, destroyer ; Wd.era : un vaisseau du hangar prêté pour l'occasion, ex. le Columbiad)
+const SPACE_WORLDS = [0, 6, 7, 8, 9];
+// engin utilisé pour une mission : { spr, veh, era, imposed } ; en Infini, toujours le vaisseau choisi au hangar
+function craftFor(mode, u, m, ship) {
+  const Wd = typeof WORLDS !== 'undefined' ? WORLDS[u] : null, C = CHASSIS[ship] || CHASSIS.if50;
+  if (mode === 'mission' && u === 0 && m === 0) return { ship: 'if50', spr: 'if50', imposed: 'first' };
+  if (mode !== 'mission' || !Wd) return { ship, spr: C.spr };
+  if (Wd.vehicle) return { ship, spr: Wd.vehicle, veh: Wd.vehicle, imposed: 'era' };
+  if (Wd.era) return { ship, spr: CHASSIS[Wd.era].spr, era: Wd.era, imposed: 'era' };
+  return { ship, spr: C.spr };
+}
+// rang de pilote : expérience pour passer du rang r au suivant
+const rankNeed = r => CONFIG.rank.need0 + CONFIG.rank.needStep * (r - 1);
 // puissance d'ensemble d'un vaisseau (pour vérifier que l'ordre du hangar monte bien)
 const shipPower = C => (C.hp + C.sh) * C.dmg * C.fire * (1 + (C.crit || 0) + 0.15 * (C.pierce || 0) + 0.2 * (C.drone || 0));
 // barres du hangar : 10 crans, et le chiffre affiché est TOUJOURS le nombre de crans pleins (bogue du 22/11 : ils différaient)
@@ -138,23 +165,28 @@ for (const [id, C] of Object.entries(CHASSIS)) C.price = id in CONFIG.prices.shi
 const CHASSIS_ORDER = ['if50', 'lame', 'columbiad', 'concorde', 'nautilus', 'bastion', 'apollo', 'omega'];
 
 // Améliorations permanentes (prix : js/config.js)
+// ship: true = propre à chaque vaisseau (Store.d.supg[vaisseau]) ; sinon amélioration du compte (Store.d.upg)
 const UPGRADES = [
-  { id: 'hull', icon: 'hull' },
-  { id: 'cannon', icon: 'dmg' },
-  { id: 'onde', icon: 'onde' },
-  { id: 'ult', icon: 'ult' },
+  { id: 'hull', icon: 'hull', ship: true },
+  { id: 'cannon', icon: 'dmg', ship: true },
+  { id: 'rate', icon: 'rate', ship: true },
+  { id: 'onde', icon: 'onde', ship: true },
+  { id: 'ult', icon: 'ult', ship: true },
   { id: 'magnet', icon: 'magnet' },
   { id: 'credit', icon: 'credit' },
 ];
 for (const U of UPGRADES) U.prices = CONFIG.prices.upgrades[U.id];
+const SHIP_UPG = UPGRADES.filter(U => U.ship).map(U => U.id);
 
 // Paliers du mode infini
-const TIERS = [   // noms : lang.js (tier.N). Records : Store.d.best.tN
+const TIERS = [   // noms : lang.js (tier.N). Records : Store.d.best.tN ; palier i ouvert quand on atteint la vague TIER_OPEN du palier i − 1
+  { d: 14, mul: 2, hp: 0, col: '#8CC8EE' },   // Normal (retours n° 3) : pour apprendre, la pression n'arrive que vers la vague 8
   { d: 30, mul: 3, hp: 0, col: '#E8A15A' },
   { d: 44, mul: 4.5, hp: -1, col: '#D9705F' },
   { d: 60, mul: 7, hp: -99, col: '#F2F2F4' },
 ];
 
+const TIER_OPEN = 10;
 // Paliers de l'Infini (retours n° 2) : franchis au boss des vagues 10, 20, 30… ; nom (lang.js pal.nK) et crédits
 const PAL_EVERY = 10;
 function palName(k) { return tx(k <= 8 ? 'pal.n' + k : 'pal.nX', { k }); }
@@ -162,11 +194,11 @@ function palCr(k, cred) { return Math.round(CONFIG.rewards.infPal * k * (cred ||
 
 // Statistiques du joueur : châssis + améliorations permanentes
 function computeStats(chId) {
-  const ch = CHASSIS[chId] || CHASSIS.if50, U = id => Store.upg(id);
+  const ch = CHASSIS[chId] || CHASSIS.if50, U = id => Store.upg(id, chId);
   return {
     hp: ch.hp,                     // points de coque (PV) : à 0, le vaisseau est détruit
     shield: ch.sh + U('hull'),     // charges du bouclier : encaissent avant la coque, se rechargent après un moment sans coup
-    speed: ch.speed, dmg: ch.dmg * (1 + 0.05 * U('cannon')), fire: ch.fire,
+    speed: ch.speed, dmg: ch.dmg * (1 + 0.05 * U('cannon')), fire: ch.fire * (1 + 0.06 * U('rate')), pas: ch.pas, regenK: ch.regenK || 1,
     crit: 0.05 + (ch.crit || 0), critMul: 2.5, pierce: ch.pierce || 0,
     onde: (1 + (ch.onde || 0)) * (1 + 0.15 * U('onde')), ondeR: 250 * (1 + 0.1 * U('onde')),
     ultc: (1 + (ch.ultc || 0)) * (1 + 0.15 * U('ult')), magnet: 110 * (1 + 0.25 * U('magnet')),

@@ -29,6 +29,7 @@
           <span class="over" id="wOver"></span>
           <h1 id="wName" class="rib"></h1>
           <span class="meta" id="wMeta"></span>
+          <button class="craft" id="craftBtn"></button>
         </div>
       </div>
       <div class="home-panel">
@@ -36,6 +37,7 @@
         <div class="chips" id="chips" role="tablist" data-i18n-aria="aria.freqs"></div>
         <div class="missions" id="missions"></div>
         <button class="pill primary" id="launch"></button>
+        <p class="goal" id="homeGoal"></p>
       </div>
     </div>
   </section>
@@ -61,8 +63,10 @@
       </div>
       <div class="carousel" id="shipList"></div>
     </div>
-    <h3 class="section" data-i18n="hangar.upg"></h3>
+    <p class="upg-tip hidden" id="upgTip"></p><h3 class="section" id="hangUpgH"></h3>
     <div class="upg-grid" id="hangUpg"></div>
+    <h3 class="section" data-i18n="hangar.acc"></h3>
+    <div class="upg-grid acc" id="hangAcc"></div>
   </section>
 
   <!-- ===================== INFINI ===================== -->
@@ -80,7 +84,10 @@
   <section class="screen" id="s-profile" data-i18n-aria="aria.profile">
     <header class="bar"><span class="credits stc" id="profSt"></span><h2 class="title rib" data-i18n="profile.title"></h2><span class="credits" id="profCr"></span></header>
     <div class="profile">
+      <div class="rank-card" id="rankCard"></div>
       <div class="grid-stats" id="statGrid"></div>
+      <h3 class="section" data-i18n="profile.trophies"></h3>
+      <div class="trophies" id="trophies"></div>
       <h3 class="section" data-i18n="profile.archives"></h3>
       <div class="list" id="archives"></div>
       <h3 class="section" data-i18n="profile.settings"></h3>
@@ -116,7 +123,7 @@
   <nav class="tabbar" id="tabbar" data-i18n-aria="nav.aria">
     <button data-go="s-home" class="on"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12C6 6 8 6 10 12C12 18 14 18 16 12C18 6 20 6 21 9"/></svg><span data-i18n="nav.missions"></span></button>
     <button data-go="s-hangar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V10L12 5L20 10V19M9 19V14H15V19"/></svg><span data-i18n="nav.hangar"></span></button>
-    <button data-go="s-inf"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12C9 8 5 8 5 12C5 16 9 16 12 12C15 8 19 8 19 12C19 16 15 16 12 12Z"/></svg><span data-i18n="nav.inf"></span></button>
+    <button data-go="s-inf"><svg class="lk" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 11V8.5A4 4 0 0 1 16 8.5V11"/><path d="M6 11H18V20H6Z" fill="currentColor"/></svg><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12C9 8 5 8 5 12C5 16 9 16 12 12C15 8 19 8 19 12C19 16 15 16 12 12Z"/></svg><span data-i18n="nav.inf"></span></button>
     <button data-go="s-profile"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V12M10 20V7M15 20V10M20 20V4"/></svg><span data-i18n="nav.profile"></span></button>
   </nav>
 

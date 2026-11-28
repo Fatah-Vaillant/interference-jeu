@@ -55,7 +55,8 @@ const Game = {
     if (!down) return;
     if (this.state === 'levelup' && /^(Digit|Numpad)[123]$/.test(k)) { UI.pickSkill(+k.slice(-1) - 1); return; }
     if (this.state === 'radio' && /^(Digit|Numpad)[123]$/.test(k)) { UI.radioPick(+k.slice(-1) - 1); return; }
-    if (k === 'Escape' || k === 'KeyP') { if (this.state === 'play') this.pause(true); else if (this.state === 'paused') this.pause(false); return; }
+    if (k === 'Escape' || k === 'KeyP') { if (this.state === 'play' || this.state === 'resume') this.pause(true); else if (this.state === 'paused') this.pause(false); return; }
+    if (this.state === 'resume') { this.resumeGo(); return; }
     if (this.state !== 'play') return;
     if (k === 'KeyE' || k === 'ShiftLeft' || k === 'ShiftRight') this.fireOnde();
     if (k === 'KeyR' || k === 'Enter') this.fireUlt();
@@ -63,6 +64,7 @@ const Game = {
   toLogical(e) { const r = this.cv.getBoundingClientRect(); return [(e.clientX - r.left) / r.width * W, (e.clientY - r.top) / r.height * H]; },
   pDown(e) {
     if (!this.running || !this.p) return;
+    if (this.state === 'resume') { this.resumeGo(e); return; }
     const [x, y] = this.toLogical(e);
     this.tapCube(x, y); // toucher un cube d'arme du doigt le prend aussi (le glissé continue normalement)
     if (e.pointerType === 'mouse') { this.mouseDown = true; this.mouseFollow = true; this.p.tx = x; this.p.ty = y; return; }
@@ -71,7 +73,9 @@ const Game = {
     this.p.tx = this.p.x; this.p.ty = this.p.y;
   },
   pMove(e) {
-    if (!this.running || !this.p || this.state !== 'play') return;
+    if (!this.running || !this.p) return;
+    if (this.state === 'resume') { if (this.ptr && this.ptr.id === e.pointerId) { const [x, y] = this.toLogical(e); this.ptr.sx = x; this.ptr.sy = y; this.ptr.px = this.p.x; this.ptr.py = this.p.y; } return; }
+    if (this.state !== 'play') return;
     const [x, y] = this.toLogical(e);
     if (e.pointerType === 'mouse') { if (x >= 0 && x <= W && y >= 0 && y <= H) { this.mouseFollow = true; this.p.tx = x; this.p.ty = y; } return; }
     if (!this.ptr || this.ptr.id !== e.pointerId) return;
@@ -91,27 +95,36 @@ const Game = {
   /* ================= démarrage ================= */
   start(cfg) {
     SFX.init();
-    this.mode = cfg.mode; this.u = cfg.u || 0; this.m = cfg.m || 0; this.tier = cfg.tier || 0;
+    this.mode = cfg.mode; this.u = cfg.u || 0; this.m = cfg.m || 0; this.tier = cfg.tier || 0; this.capsN = 0; this.ultSeen = {}; this.powC = null;
     this.running = false; this.resize(); this.running = true;
-    this.chId = Store.d.ship; this.ch = CHASSIS[this.chId] || CHASSIS.if50; this.S = computeStats(this.chId);
+    // engin : mission 1 à l'IF-50, véhicule d'époque dans les univers historiques (puissance du vaisseau équipé), vaisseau choisi ailleurs
+    this.craft0 = craftFor(this.mode, this.u, this.m, Store.d.ship);
+    this.chId = this.craft0.ship; this.ch = CHASSIS[this.chId] || CHASSIS.if50; this.S = computeStats(this.chId);
     const S = this.S;
     if (this.mode === 'inf') S.shield = TIERS[this.tier].hp <= -99 ? 0 : Math.max(0, S.shield + TIERS[this.tier].hp); // paliers : bouclier réduit ou supprimé
     this.skills = {}; this.modC = null;
     this.p = { x: W / 2, y: H - 170, tx: W / 2, ty: H - 170, vx: 0, vy: 0, hp: S.hp, hpMax: S.hp, sp: S.shield, spMax: S.shield, regT: 0, inv: 2, hitFx: null, shieldT: 0, wf: 'imp', wl: Math.min(10, S.wl), cd: 0, diagT: 0, droneT: 0, buffT: 0, revived: false, tilt: 0, flash: 0 };
     Object.assign(this, { score: 0, combo: 0, comboT: 0, maxCombo: 0, kills: 0, hits: 0, hpLost: 0, grazes: 0, cr: 0, xp: 0, lvl: 1, need: this.xpNeed(1), pend: 0, lvBreak: false, onde: 0, ult: 0, dps: 0, dmgAcc: 0, pwT: 0, infHpK: 0, infDens: 0, infBossK: 0, xpTxt: [], pal: 0, palCrT: 0,
-      t: 0, ts: 1, shake: 0, flashA: 0, hurtA: 0, stormN: 0, over: false, outro: null, delay: null, volT: 2, diveT: 3, mzI: 0, ondeLock: 0, ultLock: 0, huntT: 4, curT: 8, eliteT: 0, eliteW: 0 });
+      t: 0, ts: 1, stopT: 0, comboK: 0, shake: 0, flashA: 0, hurtA: 0, flashLog: [], resume: null, stormN: 0, over: false, outro: null, delay: null, volT: 2, diveT: 3, mzI: 0, ondeLock: 0, ultLock: 0, huntT: 4, curT: 8, eliteT: 0, eliteW: 0 });
     this.ens = []; this.pb = []; this.eb = []; this.pk = []; this.fx = []; this.zaps = []; this.rails = []; this.beams = []; this.texts = []; this.nums = []; this.spawnQ = [];
     this.boss = null; this.cine = null; this.uf = null; this.wave = null; this.F = null; this.ondeFx = null; this.wfade = 0;
     this.mouseFollow = false; this.mouseDown = false; this.ptr = null; this.keys = {};
+    // coup de pouce (après 2 défaites de suite) : bouclier +1 ou arme +1, choisi avant la partie
+    this.help = cfg.help || null;
+    if (this.help === 'shield') { this.p.spMax++; this.p.sp++; } else if (this.help === 'arm') this.p.wl = Math.min(10, this.p.wl + 1);
+    this.deathCam = null; this.upgL = this.veh ? null : { cannon: Store.upg('cannon', this.chId), hull: Store.upg('hull', this.chId), rate: Store.upg('rate', this.chId) };
     Ideas.start(this);
     if (this.mode === 'mission') {
-      this.d = this.u * CONFIG.difficulty.missionWorld + this.m * CONFIG.difficulty.missionStep; this.setWorld(this.u);
+      this.d = Math.max(0, this.u * CONFIG.difficulty.missionWorld + CONFIG.difficulty.missionCurve[this.m]); this.setWorld(this.u);
       this.steps = this.m === 4 ? ['form', 'boss'] : missionPlan(this.u, this.m).slice();
       if (this.m === 4) this.p.wl = Math.min(10, this.p.wl + CONFIG.difficulty.bossWeapon);
       this.stepI = -1; this.waveN = this.steps.filter(s => s !== 'boss').length;
+      this.gentle = this.u === 0 && this.m === 0;
     } else {
+      this.gentle = false;
       this.d = TIERS[this.tier].d; this.infWave = 0; this.steps = null; this.setWorld(randi(0, WORLDS.length - 1));
     }
+    this.tutoInit();
     Dev.onStart(this);
     this.intro = { t: 0, dur: 2.6, started: false };
     this.state = 'play';
@@ -120,9 +133,10 @@ const Game = {
 
   setWorld(u) {
     this.wi = u; this.Wd = WORLDS[u];
-    const veh = this.Wd.vehicle;
-    this.pSpr = veh || this.ch.spr; this.pW = veh ? VEH[veh].w : this.ch.pw;
-    this.moveMode = this.Wd.move;
+    // Infini : toujours le vaisseau choisi (les univers ne changent que le décor, les ennemis et les boss)
+    const cf = this.mode === 'mission' ? craftFor('mission', this.u, this.m, Store.d.ship) : { spr: this.ch.spr }, veh = this.veh = cf.veh || null;
+    this.pSpr = cf.spr; this.pW = veh ? VEH[veh].w : cf.era ? CHASSIS[cf.era].pw : this.ch.pw;
+    this.moveMode = veh ? this.Wd.move : this.Wd.move === 'float' ? 'float' : 'free';
     const D = Art.DEF[this.pSpr]; this.pSc = this.pW / D.w;
     this.noseY = (-D.h / 2 + (D.cy || 0)) * this.pSc + 6;
     this.muzzles = D.muzzle ? D.muzzle.map(([x, y]) => [x * this.pSc, y * this.pSc]) : [[0, this.noseY]];
@@ -136,7 +150,8 @@ const Game = {
       this.p.vx = this.p.vy = 0;
     }
     this.addMode = this.Wd.light ? 'source-over' : 'lighter';
-    this.trailOn = !!D.flame && (!veh || veh === 'late'); if (this.p) this.p.trail = null;
+    this.trailOn = !!D.flame && (!veh || veh === 'late');
+    this.dynCv = null; if (this.p) this.p.trail = null;
     this.persp = !!this.Wd.persp;
     if (!this.persp && this.ens) for (const e of this.ens) if (e.b0) { [e.w, e.h, e.rx, e.ry] = e.b0; e.b0 = null; e.dk = 0; }
     this.bg = this.getBg(u);
@@ -227,7 +242,7 @@ const Game = {
   lastStep() { return this.mode === 'mission' && this.steps && this.stepI >= this.steps.length - 1; },
   waveDone() {
     this.wave = null; this.F = null; SFX.play('clear');
-    this.delay = { t: 1.1, fn: () => this.nextStep() };
+    this.delay = { t: CONFIG.feel.calm, fn: () => this.nextStep() }; // respiration : on ramasse, on souffle
   },
 
   // formation : disposition (layout), entrée animée par rang (entries) et composition des types (mix)
@@ -344,7 +359,8 @@ const Game = {
     const e = this.newEnemy('heavy', W / 2, -80);
     e.w *= 2; e.h *= 2; e.rx *= 2; e.ry *= 2; e.hp = e.max = 90 * k; e.mini = true; e.wave = this.wave;
     e.state = 'mini'; e.ty = H * 0.24; e.fireT = 1.5; e.pat = 0;
-    UI.banner(tx('game.escort'), tx('game.miniboss')); SFX.play('phase');
+    const ks = CONFIG.caps.order; e.caps = ks[((this.mode === 'inf' ? 0 : this.u * 5 + this.m) + (this.capsN = (this.capsN || 0) + 1) - 1) % ks.length];
+    UI.banner(tx('game.miniboss'), tx('caps.ann', { n: tx('caps.' + e.caps) })); SFX.play('phase');
   },
   newEnemy(a, x, y) {
     const A = ARCH[a], Wd = this.Wd;
@@ -465,7 +481,7 @@ const Game = {
     this.explode(e.x, e.y, e.w * 1.8, this.Wd.boom); this.shake = Math.max(this.shake, 12);
     UI.banner(tx('elite.down', { n: e.elite.name }), tx('game.squadCr', { n: b })); SFX.play('star'); SFX.play('bigboom');
   },
-  aimShot(e, a) { const sp = clamp(170 + this.d * 3.1, 170, 470) * (this.Wd.bspeed || 1); this.eb.push({ x: e.x, y: e.y + e.ry * 0.6, vx: Math.sin(a) * sp, vy: Math.cos(a) * sp, r: 5, spr: this.Wd.eb2, kind: 'n', t: 0 }); },
+  aimShot(e, a) { const sp = clamp(170 + this.d * 3.1, 170, 470) * (this.Wd.bspeed || 1) * (this.gentle ? CONFIG.gentle.bullet : 1); this.eb.push({ x: e.x, y: e.y + e.ry * 0.6, vx: Math.sin(a) * sp, vy: Math.cos(a) * sp, r: 5, spr: this.Wd.eb2, kind: 'n', t: 0 }); },
   // rideau : une rangée de tirs sur toute la largeur avec un seul passage (deux rangées décalées à forte pression)
   curtain(P) {
     const gap = clamp(150 - 40 * P, 96, 150), gx = rand(gap / 2 + 20, W - gap / 2 - 20), sp = clamp(170 + this.d * 3.1, 170, 470) * 0.55 * (this.Wd.bspeed || 1);
@@ -484,9 +500,11 @@ const Game = {
     requestAnimationFrame(t => this.loop(t));
     const raw = (now - this.last) / 1000 || 0.016, rdt = Math.min(0.05, raw); this.last = now;
     if (!this.running) return;
+    this.rt = (this.rt || 0) + rdt;
     const t0 = performance.now();
     if (this.state === 'play') this.update(rdt);
     else if (this.state === 'end') this.updFx(rdt);
+    else if (this.state === 'resume') this.updResume(rdt);
     this.render();
     UI.hud(this);
     Dev.frame(raw, performance.now() - t0, this);
@@ -507,7 +525,10 @@ const Game = {
       if (this.cine.t >= this.cine.dur) { const type = this.cine.type; this.cine = null; this.startUlt(type); }
     } else this.ts += (1 - this.ts) * Math.min(1, rdt * 2.5);
     const camZ = this.cine ? 1.12 : 1; this.cam = this.cam || { z: 1 }; this.cam.z += (camZ - this.cam.z) * Math.min(1, rdt * 6);
-    const dt = rdt * this.ts;
+    let dt = rdt * this.ts;
+    if (this.deathCam) { const D = this.deathCam; D.t += rdt; dt = rdt * 0.15; if (D.t >= CONFIG.deathCam) { this.deathCam = null; this.finish(false); } }
+    if (this.stopT > 0) { this.stopT -= rdt; dt *= 0.03; } // arrêt sur image (grosse destruction)
+    if (!this.running) this.rt = (this.rt || 0) + rdt; // boucle coupée (tests) : le temps réel avance avec update
     this.t += dt; this.impN = 0;
     if (this.wfade > 0) this.wfade = Math.max(0, this.wfade - rdt * 1.2);
     if (this.ondeLock > 0) this.ondeLock -= dt; if (this.ultLock > 0 && !this.uf && !this.cine) this.ultLock -= dt;
@@ -527,7 +548,7 @@ const Game = {
     this.updEB(dt);
     this.updPk(dt);
     this.updFx(dt);
-    if (this.comboT > 0) { this.comboT -= dt; if (this.comboT <= 0) this.combo = 0; }
+    if (this.comboT > 0) { this.comboT -= dt; if (this.comboT <= 0) { this.combo = 0; this.comboK = 0; } }
     this.shake = Math.max(0, this.shake - rdt * 40); this.flashA = Math.max(0, this.flashA - rdt * 2.4); this.hurtA = Math.max(0, this.hurtA - rdt * 1.5);
     if (this.ondeFx) { this.ondeFx.t += rdt; if (this.ondeFx.t > 0.6) this.ondeFx = null; }
     // fin de vague
@@ -551,6 +572,7 @@ const Game = {
     p.tx = clamp(p.tx, bx0, bx1); p.ty = clamp(p.ty, minY, by1);
     const ox = p.x, spd = S.speed, ptr = this.mouseFollow || this.ptr, M = CONFIG.move;
     if (this.outro) this.updOutro(dt);
+    if (this.tuto) this.tutoStep(dt);
     else if (this.moveMode === 'float') {
       // univers « en apesanteur » : inertie gardée, mais plus vive au doigt
       const acc = ptr ? 10 : 7, top = spd * (ptr ? 1.6 : 1), ax = clamp((p.tx - p.x) * acc, -top, top), ay = clamp((p.ty - p.y) * acc, -top, top), r = Math.min(1, dt * (ptr ? 6 : 3.5));
@@ -568,7 +590,7 @@ const Game = {
     }
     if (!this.outro) { p.x = clamp(p.x, bx0, bx1); if (this.lineY) p.y = this.lineY; else p.y = clamp(p.y, minY, by1); }
     const vx = (p.x - ox) / Math.max(dt, 1e-4);
-    p.tilt += (clamp(vx / 1100, -0.3, 0.3) - p.tilt) * Math.min(1, dt * 10);
+    p.tilt += (clamp(vx / 900, -CONFIG.feel.roll, CONFIG.feel.roll) - p.tilt) * Math.min(1, dt * 10);
     p.inv -= dt; p.cd -= dt; p.buffT -= dt; p.flash -= dt; p.shieldT -= dt; if (p.invFx > 0) p.invFx -= dt;
     // le bouclier se recharge d'une charge après un moment sans coup
     if (p.sp < p.spMax) { p.regT += dt; if (p.regT >= this.regenT()) { p.regT = 0; this.shieldUp(1); SFX.play('ready'); } } else p.regT = 0;
@@ -582,7 +604,7 @@ const Game = {
     const nDiag = this.mod('diag');
     if (nDiag) { p.diagT -= dt; if (p.diagT <= 0) { p.diagT = 0.24 / this.fireMul(); for (const s of [-1, 1]) for (let i = 0; i < nDiag; i++) this.pShot('imp', p.x, p.y + this.noseY * 0.5, s * (0.42 + i * 0.16), 840, this.dmgBase() * 0.75); } }
     const nd = this.mod('drones') + S.drone;
-    if (nd) { p.droneT -= dt; if (p.droneT <= 0) { p.droneT = 0.3 / this.fireMul(); for (let i = 0; i < nd; i++) { const [dx, dy] = this.dronePos(i, nd); this.pShot('imp', dx, dy - 10, 0, 860, this.dmgBase() * 0.65); } } }
+    if (nd) { p.droneT -= dt; if (p.droneT <= 0) { p.droneT = 0.3 / this.fireMul() / (1 + this.mod('droneRate')); for (let i = 0; i < nd; i++) { const [dx, dy] = this.dronePos(i, nd); this.pShot('imp', dx, dy - 10, 0, 860, this.dmgBase() * 0.65); } } }
   },
   dronePos(i, n) { const p = this.p, a = this.t * 2 + i / n * TAU; return [p.x + Math.cos(a) * 52, p.y - 12 + Math.sin(a) * 18]; },
   // effets cumulés des compétences (données SKILLS[].fx), recalculés à chaque compétence prise
@@ -591,11 +613,11 @@ const Game = {
   buildMods() {
     const c = {}, r = CONFIG.skills.decay;
     for (const s of SKILLS) { const n = this.skills[s.id] || 0; if (!n || !s.fx) continue; for (const f of s.fx) c[f.stat] = (c[f.stat] || 0) + (f.base || 0) + (f.add || 0) * (INT_STATS.has(f.stat) ? n : (1 - r ** n) / (1 - r)); }
-    if (c.orbs) c.orbs = Math.min(c.orbs, CONFIG.skills.orbsMax);
+    if (c.orbs) c.orbs = Math.min(c.orbs, CONFIG.skills.orbsMax + (this.skills.fCrown ? 2 : 0));
     return (this.modC = c);
   },
   // emplacements : compétences différentes déjà prises (les effets immédiats « free » n'en occupent pas)
-  slotsUsed() { return SKILLS.filter(s => !s.free && this.skills[s.id]).length; },
+  slotsUsed() { return SKILLS.filter(s => !s.free && !s.fuse && this.skills[s.id]).length; },
   fireMul() { return this.S.fire * (1 + this.mod('fire')); },
   dmgBase() { let m = this.S.dmg * (1 + this.mod('dmg')); if (this.p.buffT > 0) m *= 1.25; const fv = this.mod('fever'); if (fv && this.combo >= 25) m *= 1 + fv; return m; },
   pShot(kind, x, y, ang, sp, dmg, o) {
@@ -610,26 +632,27 @@ const Game = {
     const [mx, my] = this.muzzles[this.mzI], X = p.x + mx, Y = p.y + my;
     switch (Wp.fire) {
       case 'spread': { // gerbe de tirs droits, s'élargit avec le niveau
-        const n = Wp.n[L - 1], spread = Math.min(Wp.spread * (n - 1), Wp.spreadMax ?? Infinity), dmg = lin(Wp.dmg, L) * dm, extra = Wp.splash ? { splash: lin(Wp.splash, L) } : undefined;
+        const n = Wp.n[L - 1], spread = Math.min(Wp.spread * (n - 1), Wp.spreadMax ?? Infinity), dmg = lin(Wp.dmg, L) * dm, extra = Wp.splash ? { splash: lin(Wp.splash, L) * (L >= 10 ? 1.5 : 1), lv: L } : { lv: L };
         for (let i = 0; i < n; i++) { const a = n === 1 ? 0 : -spread / 2 + spread * i / (n - 1); this.pShot(Wp.shot, X + (i - (n - 1) / 2) * Wp.gap, Y, a, Wp.speed, dmg, extra); }
-        if (Wp.helixAt && L >= Wp.helixAt) for (const s of [-1, 1]) this.pShot(Wp.shot, X + s * 20, Y + 8, 0, Wp.speed, 1.4 * dm, { helix: s });
+        if (Wp.helixAt && L >= Wp.helixAt) for (const s of [-1, 1]) this.pShot(Wp.shot, X + s * 20, Y + 8, 0, Wp.speed, 1.4 * dm, { helix: s, lv: L });
         p.cd = lin(Wp.cd, L) / fm * (Wp.cdFast && L >= Wp.cdFast[0] ? Wp.cdFast[1] : 1); break;
       }
       case 'chain': { // arc qui saute d'ennemi en ennemi
         const range = lin(Wp.range, L), chains = Math.floor(lin(Wp.chains, L)), dmg = lin(Wp.dmg, L) * dm;
-        const tgt = this.nearest(X, Y, range, null, true);
-        if (tgt) this.chainArc(X, Y, tgt, chains, dmg, L >= Wp.forkAt ? 2 : 1);
+        const tgt = this.nearest(X, Y, range, null, true), cd = lin(Wp.cd, L) / fm;
+        if (tgt) this.chainArc(X, Y, tgt, chains, dmg, L >= Wp.forkAt ? 2 : 1, cd + 0.06);
         else this.zaps.push({ pts: this.bolt(X, Y, X + rand(-60, 60), Y - rand(120, 220), 6), life: 0.07, max: 0.07, col: Wp.col });
-        p.cd = lin(Wp.cd, L) / fm; break;
+        p.cd = cd; break;
       }
       case 'rail': { // rayons instantanés
         const lines = Wp.lines[L - 1], dmg = lin(Wp.dmg, L) * dm, wdt = lin(Wp.width, L);
         for (const ox of Wp.offsets[lines]) this.rail(X + ox, Y, dmg, wdt);
+        if (L >= 10) this.rail(X, Y, dmg * 0.5, wdt * 2.4, true); // Lance-rail : un trait central large
         p.cd = lin(Wp.cd, L) / fm; break;
       }
       case 'swarm': { // missiles à tête chercheuse, en éventail alterné
         const n = Wp.n[L - 1];
-        for (let i = 0; i < n; i++) { const s = i % 2 ? 1 : -1; this.pShot(Wp.shot, X + s * (8 + i * 3), Y + 6, s * (0.5 + i * 0.12), Wp.speed, lin(Wp.dmg, L) * dm, { homing: true, pierce: 0 }); }
+        for (let i = 0; i < n; i++) { const s = i % 2 ? 1 : -1; this.pShot(Wp.shot, X + s * (8 + i * 3), Y + 6, s * (0.5 + i * 0.12), Wp.speed, lin(Wp.dmg, L) * dm, { homing: true, pierce: 0, lv: L }); }
         p.cd = lin(Wp.cd, L) / fm; break;
       }
     }
@@ -650,20 +673,20 @@ const Game = {
     if (t.node) this.hurtNode(t.node, dmg); else if (t.core) this.hurtBoss(dmg, src); else this.hurt(t, dmg, src, x, y);
   },
   bolt(x0, y0, x1, y1, n) { const pts = [x0, y0]; for (let i = 1; i < n; i++) { const u = i / n; pts.push(lerp(x0, x1, u) + rand(-10, 10), lerp(y0, y1, u) + rand(-10, 10)); } pts.push(x1, y1); return pts; },
-  chainArc(x, y, tgt, chains, dmg, forks) {
+  chainArc(x, y, tgt, chains, dmg, forks, hold = 0.09) {
     let cx = x, cy = y, cur = tgt; const hit = [];
     for (let i = 0; i < chains && cur; i++) {
-      this.zaps.push({ pts: this.bolt(cx, cy, cur.x, cur.y, 7), life: 0.09, max: 0.09, col: WEAPONS.arc.col });
+      this.zaps.push({ pts: this.bolt(cx, cy, cur.x, cur.y, 7), life: hold, max: hold, col: WEAPONS.arc.col });
       this.hitTarget(cur, dmg, 'arc', cur.x, cur.y); hit.push(cur);
       cx = cur.x; cy = cur.y;
       const cands = this.targets().filter(t => !hit.includes(t) && !(t.node && hit.some(h => h.node === t.node)));
       cands.sort((a, b) => d2(cx, cy, a.x, a.y) - d2(cx, cy, b.x, b.y));
-      if (forks > 1 && cands[1] && d2(cx, cy, cands[1].x, cands[1].y) < 200 * 200) { this.zaps.push({ pts: this.bolt(cx, cy, cands[1].x, cands[1].y, 5), life: 0.09, max: 0.09, col: WEAPONS.arc.col }); this.hitTarget(cands[1], dmg * 0.6, 'arc'); }
+      if (forks > 1 && cands[1] && d2(cx, cy, cands[1].x, cands[1].y) < 200 * 200) { this.zaps.push({ pts: this.bolt(cx, cy, cands[1].x, cands[1].y, 5), life: hold, max: hold, col: WEAPONS.arc.col }); this.hitTarget(cands[1], dmg * 0.6, 'arc'); }
       cur = cands[0] && d2(cx, cy, cands[0].x, cands[0].y) < 220 * 220 ? cands[0] : null;
     }
   },
-  rail(x, y, dmg, wdt) {
-    this.rails.push({ x, y0: y, life: 0.14, max: 0.14, w: wdt });
+  rail(x, y, dmg, wdt, ult) {
+    this.rails.push({ x, y0: y, life: 0.14, max: 0.14, w: wdt, ult });
     for (const e of this.ens) if (!e.dead && !e.gone && e.y < y && Math.abs(e.x - x) < e.rx + wdt / 2) this.hurt(e, dmg, 'rail', x, e.y);
     const B = this.boss;
     if (B && !B.dying && !B.entering) {
@@ -684,7 +707,7 @@ const Game = {
     const gens = this.ens.filter(e => e.A.gen && !e.dead);
     for (const e of this.ens) {
       if (e.dead || e.gone) continue;
-      e.t += dt; e.flash -= dt; this.trail(e, dt);
+      e.t += dt; e.flash -= dt; if (e.kick) e.kick = Math.max(0, e.kick - dt * 30); if (e.hitT != null) this.heatStep(e, dt); this.trail(e, dt);
       // traînée des ennemis en mouvement (entrée, piqué, vol libre), elle se résorbe en formation
       if (e.state !== 'form' && e.state !== 'mini') { if ((e.trT = (e.trT || 0) - dt) <= 0) { e.trT = 0.03; (e.tr || (e.tr = [])).unshift(e.x, e.y); if (e.tr.length > 16) e.tr.length = 16; } }
       else if (e.tr && e.tr.length) { if ((e.trT = (e.trT || 0) - dt) <= 0) { e.trT = 0.03; e.tr.length -= 2; } }
@@ -722,14 +745,14 @@ const Game = {
     if (F && this.wave && !this.outro) {
       this.volT -= dt;
       if (this.volT <= 0) {
-        this.volT = clamp(1.25 - this.d * 0.016, 0.3, 1.25) * rand(0.8, 1.2);
+        this.volT = clamp(1.25 - this.d * 0.016, 0.3, 1.25) * rand(0.8, 1.2) * (this.gentle ? CONFIG.gentle.fire : 1);
         const sh = this.ens.filter(e => e.state === 'form' && e.A.fire && e.frozen <= 0);
         const vol = 1 + Math.floor(this.d / 14) + (this.mode === 'inf' ? Math.round(this.infDens || 0) : 0);
         for (let i = 0; i < vol && sh.length; i++) { const e = sh.splice(randi(0, sh.length - 1), 1)[0]; this.shoot(e, e.A.fire); }
       }
       this.diveT -= dt;
       if (this.diveT <= 0) {
-        this.diveT = clamp(3.4 - this.d * 0.04, 0.9, 3.4) * rand(0.7, 1.3);
+        this.diveT = clamp(3.4 - this.d * 0.04, 0.9, 3.4) * rand(0.7, 1.3) * (this.gentle ? CONFIG.gentle.dive : 1);
         const c = this.ens.filter(e => e.state === 'form' && e.frozen <= 0 && (e.A.dive || e.A.kami || (this.d > 10 && Math.random() < 0.25)));
         const n = Math.min(c.length, 1 + Math.floor(this.d / 18) + (Math.random() < 0.3 ? 1 : 0));
         for (let i = 0; i < n; i++) this.startDive(c.splice(randi(0, c.length - 1), 1)[0]);
@@ -751,8 +774,8 @@ const Game = {
     e.x = W / 2 + Math.sin(e.t * 0.6) * (W / 2 - e.w * 0.6);
     e.fireT -= dt;
     if (e.fireT <= 0 && e.t > 1.5) {
-      e.pat = (e.pat + 1) % 3; e.fireT = clamp(1.3 - this.d * 0.012, 0.5, 1.3);
-      const p = this.p, a = Math.atan2(p.x - e.x, (p.y + this.hitOff) - e.y), sp = clamp(175 + this.d * 3, 175, 460) * (this.Wd.bspeed || 1);
+      e.pat = (e.pat + 1) % 3; e.fireT = clamp(1.3 - this.d * 0.012, 0.5, 1.3) * (this.gentle ? CONFIG.gentle.fire : 1);
+      const p = this.p, a = Math.atan2(p.x - e.x, (p.y + this.hitOff) - e.y), sp = clamp(175 + this.d * 3, 175, 460) * (this.Wd.bspeed || 1) * (this.gentle ? CONFIG.gentle.bullet : 1);
       const mk = (ang, spr, s = sp) => this.eb.push({ x: e.x, y: e.y + e.ry * 0.5, vx: Math.sin(ang) * s, vy: Math.cos(ang) * s, r: 5, spr, kind: 'n', t: 0 });
       if (e.pat === 0) for (let i = -3; i <= 3; i++) mk(i * 0.16, this.Wd.eb);
       else if (e.pat === 1) for (let i = -1; i <= 1; i++) mk(a + i * 0.09, this.Wd.eb2, sp * 1.15);
@@ -793,7 +816,9 @@ const Game = {
     if ((src === 'shot' || src === 'arc' || src === 'rail') && Math.random() < this.S.crit + this.mod('crit')) { dmg *= this.S.critMul; crit = true; }
     if (src !== 'onde' && src !== 'ult') this.dmgAcc += dmg; // puissance mesurée : dégâts bruts (avant le plafond de l'As)
     if (e.elite) dmg = this.eliteDmg(e, dmg, src);
-    e.hp -= dmg; e.flash = 0.08; this.dmgNum(e, x == null ? e.x : x, y == null ? e.y - e.h * 0.2 : y, dmg, crit);
+    e.hp -= dmg; if (this.bigOne(e)) this.heatUp(e); else e.flash = 0.08;
+    if (src === 'shot' || src === 'rail' || src === 'arc') e.kick = Math.min(5, (e.kick || 0) + 2.4 * clamp(40 / Math.max(e.w, 20), 0.35, 1.2)); // recul (moins pour les gros)
+    this.dmgNum(e, x == null ? e.x : x, y == null ? e.y - e.h * 0.2 : y, dmg, crit);
     const fz = this.mod('freeze'); if (fz && src === 'shot' && !e.elite && Math.random() < fz) e.frozen = 1.5;
     const stc = this.mod('storm'); if (stc && src !== 'storm' && ++this.stormN >= 10) { this.stormN = 0; const t = this.nearest(e.x, e.y, 400); if (t) this.chainArc(e.x, e.y, t, stc, 3 * this.dmgBase(), 1); }
     if (crit) this.spark(x == null ? e.x : x, y == null ? e.y : y, '#FFFFFF', 5, 220);
@@ -803,7 +828,12 @@ const Game = {
   },
   kill(e, silent) {
     if (e.dead) return; e.dead = true;
-    if (!silent) { this.kills++; this.combo++; this.comboT = 1.5; this.maxCombo = Math.max(this.maxCombo, this.combo); }
+    if (!silent) {
+      this.kills++; this.combo++; this.comboT = 1.5; this.maxCombo = Math.max(this.maxCombo, this.combo);
+      const F = CONFIG.feel, ck = Math.floor(this.combo / F.comboStep);
+      if (ck > this.comboK) { this.comboK = ck; SFX.play('combo', 40, ck - 1); SFX.vib(8, 1); UI.comboBump(); }
+      if (this.bigOne(e)) { this.stopT = Math.max(this.stopT, e.mini || e.elite ? F.hitStop * 1.2 : F.hitStop * 0.8); this.shake = Math.max(this.shake, clamp(Math.max(e.w, e.h) / 9, 3, 12)); SFX.vib(14, 1); }
+    }
     const mult = 1 + Math.min(2, Math.floor(this.combo / 10) * 0.25);
     this.score += Math.round(e.A.pts * (e.mini ? 20 : 1) * mult * (1 + this.d * 0.03) * this.scoreMul());
     this.explode(e.x, e.y, Math.max(e.w, e.h) * (e.mini ? 1.5 : 1), this.Wd.boom);
@@ -814,7 +844,7 @@ const Game = {
     const nsh = this.mod('shards'); if (nsh) { const n = nsh; for (let i = 0; i < n; i++) this.pShot('shard', e.x, e.y, i / n * TAU, 520, this.dmgBase() * 1.2, { rico: true }); }
     if (e.squad && !silent) { e.squad.k++; if (e.squad.k === e.squad.n) { const b = Math.round((CONFIG.rewards.squad + this.d) * this.S.cred); this.cr += b; this.score += 300; UI.banner(tx('game.squad'), tx('game.squadCr', { n: b })); SFX.play('star'); } }
     if (e.elite && !silent) this.eliteDown(e);
-    if (e.mini) { for (let i = 0; i < 3; i++) this.pk.push(this.newPk('cr', e.x, e.y, Math.ceil(2 + this.d * 0.3))); this.pk.push(this.newPk('up', e.x, e.y)); this.shake = 14; SFX.play('bigboom'); }
+    if (e.mini) { for (let i = 0; i < 3; i++) this.pk.push(this.newPk('cr', e.x, e.y, Math.ceil(2 + this.d * 0.3))); this.pk.push(this.newPk('caps', e.x, e.y, 1, e.caps || 'arm')); this.shake = 14; SFX.play('bigboom'); }
     Ideas.onKill(this, e, silent);
   },
   drop(e) {
@@ -823,19 +853,21 @@ const Game = {
     if (Math.random() < A.cr) this.pk.push(this.newPk('cr', e.x, e.y, Math.ceil((1 + this.d * 0.12) * rand(1, 2))));
     let gift = Math.random() < (A.gift || 0.025);
     if (w && !w.giftDone && ++w.killsN >= w.giftAt) { gift = true; w.giftDone = true; }
+    if (this.tuto && !this.tuto.cubeOk) gift = false; // tutoriel : un seul cube, offert au calme
     if (gift) { const q = this.newPk('gift', e.x, e.y, 1, Math.random() < 0.5 ? pick(FAMS.filter(f => f !== this.p.wf)) : pick(FAMS)); this.pk.push(q); this.cubeTip(q); }
     else if (Math.random() < CONFIG.drops.weapon + (A === ARCH.heavy ? CONFIG.drops.weaponHeavy : 0)) this.pk.push(this.newPk('up', e.x, e.y));
     else if (w && !w.cell && Math.random() < CONFIG.drops.shield * (this.mode === 'inf' ? CONFIG.drops.shieldInf : 1)) { w.cell = true; this.pk.push(this.newPk('hp', e.x, e.y)); }
   },
   newPk(k, x, y, v = 1, fam) { return { k, x, y, vx: rand(-90, 90), vy: rand(-180, -60), v, fam, t: 0 }; },
 
-  regenT() { return this.mode === 'inf' ? CONFIG.shield.regenInf : CONFIG.shield.regen; },
+  regenT() { return (this.mode === 'inf' ? CONFIG.shield.regenInf : CONFIG.shield.regen) * (this.S.regenK || 1) * (this.gentle ? CONFIG.gentle.regen : 1); },
   // un coup reçu : le bouclier encaisse ; s'il est tombé, la coque perd 1 PV ; à 0 PV, le vaisseau est détruit
   hurtPlayer(sx, sy) {
     const p = this.p;
     if (p.inv > 0 || this.state !== 'play' || this.outro || this.over || this.cine || this.uf) return;
     const hy = p.y + this.hitOff, ang = sx == null ? -Math.PI / 2 : Math.atan2(sy - hy, sx - p.x);
-    this.hits++; p.inv = 1.6; this.combo = 0; this.addOnde(0.12); Ideas.onHurt(this);
+    if (this.combo >= 10) { this.floatText(p.x, p.y - 64, tx('game.comboLost', { n: this.combo }), '#D9705F'); SFX.play('comboBreak'); } // le combo se brise
+    this.hits++; p.inv = 1.6; this.combo = 0; this.comboK = 0; this.addOnde(0.12); Ideas.onHurt(this);
     if (p.wl > 3) { p.wl--; this.floatText(p.x, p.y - 60, WEAPONS[p.wf].name + ' ' + p.wl, '#D9705F'); }
     this.eb = this.eb.filter(b => d2(b.x, b.y, p.x, p.y) > 160 * 160);
     p.regT = 0;
@@ -854,8 +886,8 @@ const Game = {
       return;
     }
     this.explode(p.x, hy, 60, this.Wd.boom);
-    if (this.mod('revive') && !p.revived) { p.revived = true; p.hp = Math.max(1, Math.ceil(p.hpMax / 2)); p.sp = p.spMax; p.inv = 3; this.flashA = 0.6; UI.banner(tx('game.revive')); }
-    else this.finish(false);
+    if (this.mod('revive') && !p.revived) { p.revived = true; p.hp = Math.max(1, Math.ceil(p.hpMax / 2)); p.sp = p.spMax; p.inv = 3; this.flashScreen(0.6); UI.banner(tx('game.revive')); }
+    else { this.deathCam = { x: sx ?? p.x, y: sy ?? hy, t: 0 }; p.inv = 99; SFX.play('alarm'); }
   },
   repair(n) { const p = this.p, was = p.hp; p.hp = Math.min(p.hpMax, p.hp + n); if (p.hp > was) this.floatText(p.x, p.y - 60, tx('game.hpUp', { n: p.hp - was }), '#7CF2B4'); },
   shieldUp(n) { const p = this.p, was = p.sp; p.sp = Math.min(p.spMax, p.sp + n); if (p.sp > was) { p.shieldT = 0.5; this.floatText(p.x, p.y - 60, tx('game.shieldUp', { n: p.sp - was }), '#BFE8FF'); } },
@@ -864,15 +896,16 @@ const Game = {
   shatter() {
     const p = this.p, hy = p.y + this.hitOff;
     for (let i = 0; i < 14; i++) { const a = i / 14 * TAU, [x, y] = this.shieldEdge(a); this.spark(x, y, i % 2 ? '#BFE8FF' : '#FFFFFF', 3, 240); }
-    this.fx.push({ type: 'flash', x: p.x, y: hy, life: 0.25, max: 0.25, size: this.shRy * 2.4, col: '#BFE8FF', add: true });
-    this.shake = 16; this.hurtA = 0.75; this.flashA = 0.25; SFX.play('bigboom'); SFX.vib([60, 30, 60]);
+    if (this.bigFlash()) this.fx.push({ type: 'flash', x: p.x, y: hy, life: 0.25, max: 0.25, size: this.shRy * 2.4, col: '#BFE8FF', add: true });
+    this.shake = 16; this.hurtA = 0.75; this.flashScreen(0.25); SFX.play('bigboom'); SFX.vib([60, 30, 60]);
     this.floatText(p.x, p.y - 84, tx('game.shieldDown'), '#BFE8FF');
   },
   graze(b) {
-    this.grazes++; const k = 1 + this.mod('grazeGain');
+    this.grazes++; const k = (1 + this.mod('grazeGain')) * (this.S.pas === 'graze' ? 1.6 : 1);
     this.addOnde(0.035 * k); this.score += 5 * this.scoreMul();
     const gb = this.mod('grazeBuff'); if (gb) this.p.buffT = gb;
-    this.spark(b.x, b.y, '#FFFFFF', 3, 120); SFX.play('graze', 50);
+    this.spark(b.x, b.y, '#FFFFFF', 4, 140); SFX.play('graze', 50);
+    const ob = UI.btnBox('#ondeBtn'); if (ob) { const ty = ob.top + 38; this.fx.push({ type: 'dot', x: b.x, y: b.y, vx: (ob.cx - b.x) * 2.3, vy: (ty - b.y) * 2.3, life: 0.42, max: 0.42, size: 2.4, col: '#F2C08A', add: true }); UI.ondeBump(); }
   },
   // vitesse de charge (CONFIG.powers) : réduite en mission, bien plus en Infini et de plus en plus avec les vagues ; rien pendant le verrou après usage
   powK(k) { const P = CONFIG.powers; return this.mode === 'inf' ? P[k + 'Inf'] / (1 + P.infSlow * Math.max(0, (this.infWave || 1) - 1)) : P[k]; },
@@ -932,7 +965,7 @@ const Game = {
       if (this.convoy && Ideas.hitConvoy(this, b)) { b.dead = true; continue; }
       const dd = d2(b.x, b.y, hx, hy);
       if (dd < (b.r + this.hitR) ** 2) { b.dead = true; this.hurtPlayer(b.x, b.y); continue; }
-      if (!b.grazed && dd < (b.r + this.hitR + 24) ** 2) { b.grazed = true; this.graze(b); }
+      if (!b.grazed && dd < (b.r + this.hitR + (this.S.pas === 'graze' ? 38 : 24)) ** 2) { b.grazed = true; this.graze(b); }
     }
     this.eb = this.eb.filter(b => !b.dead);
     if (orbs) for (const e of this.ens) for (const [ox, oy] of orbs) if (!e.dead && d2(e.x, e.y, ox, oy) < (e.rx + 10) ** 2 && (e.orbT || 0) < this.t) { e.orbT = this.t + 0.25; this.hurt(e, 2 * this.dmgBase(), 'orbit'); }
@@ -959,7 +992,8 @@ const Game = {
         if (!this.outro && dist < CONFIG.cube.touch) { q.dead = true; this.collect(q); } else if (q.y > H + 30) q.dead = true;
         continue;
       }
-      if (this.outro || (q.t > 0.3 && dist < (q.k === 'xp' ? R * 1.4 : R))) { const sp = 320 + q.t * 520; q.vx = dx / dist * sp; q.vy = dy / dist * sp; }
+      const calm = !this.wave && !this.boss && this.delay && q.t > 0.25; // calme entre deux vagues : tout ce qui traîne est aspiré
+      if (this.outro || calm || (q.k === 'caps' && q.t > 0.7) || (q.t > 0.3 && dist < (q.k === 'xp' ? R * 1.4 : R))) { const sp = 320 + q.t * 520; q.vx = dx / dist * sp; q.vy = dy / dist * sp; }
       else { q.vy = Math.min(150, q.vy + 280 * dt); q.vx *= 1 - dt * 2; }
       q.x += q.vx * dt; q.y += q.vy * dt;
       if (dist < 26) { q.dead = true; this.collect(q); } else if (q.y > H + 30) q.dead = true;
@@ -971,11 +1005,19 @@ const Game = {
     switch (q.k) {
       case 'xp': this.gainXp(q.v); break;
       case 'cr': this.cr += Math.round(q.v * this.S.cred * Ideas.crMul(this)); SFX.play('cr', 35); break;
-      case 'gift': if (q.fam === p.wf) this.wpnUp(); else { p.wf = q.fam; const Wf = WEAPONS[q.fam]; this.floatText(p.x, p.y - 50, Wf.name + ' ' + p.wl, Wf.col); UI.hintText(tx('cube.got', { n: Wf.name, d: Wf.desc }), 3200); SFX.play('gift'); } if (q.tip) { Store.d.seen.cubeTip = 9; Store.save(); } break;
+      case 'gift': if (this.tuto && this.tuto.k === 'cube') this.tutoGo('ultWait'); if (q.fam === p.wf) this.wpnUp(); else { p.wf = q.fam; const Wf = WEAPONS[q.fam]; this.floatText(p.x, p.y - 50, Wf.name + ' ' + p.wl, Wf.col); if (p.wl >= 10) this.wpnUlt(); UI.hintText(tx('cube.got', { n: Wf.name, d: Wf.desc }), 3200); SFX.play('gift'); } if (q.tip) { Store.d.seen.cubeTip = 9; Store.save(); } break;
       case 'up': this.wpnUp(); break;
       case 'hp': this.repair(1); SFX.play('gift'); break;
       case 'sh': this.shieldUp(1); SFX.play('gift'); break;
+      case 'caps': this.openCaps(q.fam); break;
     }
+  },
+  openCaps(k) {
+    const p = this.p;
+    if (k === 'arm') { if (p.wl >= 10) this.score += 1000; else { p.wl = Math.min(10, p.wl + 2); if (p.wl >= 10) this.wpnUlt(); } }
+    else if (k === 'shield') { p.spMax += 1; this.shieldUp(p.spMax); }
+    else if (k === 'level') this.gainXp(Math.max(0, this.need - this.xp) + 0.01);
+    UI.banner(tx('caps.got'), tx('caps.' + k)); SFX.play('fanfare'); SFX.vib([15, 30, 25], 2); this.spark(p.x, p.y, '#F2B84B', 14, 240);
   },
   // cube d'arme : à ses premières apparitions (CONFIG.cube.tips), une bulle explique qu'on le touche pour changer d'arme
   cubeTip(q) {
@@ -987,12 +1029,13 @@ const Game = {
     const q = this.pk.find(o => o.k === 'gift' && !o.dead && d2(o.x, o.y, x, y) < CONFIG.cube.tapR ** 2);
     if (!q) return false; q.dead = true; this.collect(q); return true;
   },
-  wpnUp() { const p = this.p; if (p.wl < 10) { p.wl++; this.floatText(p.x, p.y - 50, WEAPONS[p.wf].name + ' ' + p.wl, WEAPONS[p.wf].col); SFX.play('up'); } else { this.score += 500; this.floatText(p.x, p.y - 50, '+500', '#E9C979'); } },
+  wpnUp() { const p = this.p; if (p.wl < 10) { p.wl++; this.floatText(p.x, p.y - 50, WEAPONS[p.wf].name + ' ' + p.wl, WEAPONS[p.wf].col); SFX.play('up'); if (p.wl >= 10) this.wpnUlt(); } else { this.score += 500; this.floatText(p.x, p.y - 50, '+500', '#E9C979'); } },
   // chiffres de dégâts : un chiffre par cible, cumulé tant que les coups s'enchaînent (moins de fouillis)
   dmgNum(o, x, y, dmg, crit) {
     const v = dmg * 10, q = o.dn;
     if (q && q.life > 0 && q.max - q.life < 0.28) { q.v += v; q.age = Math.min(q.age, 0.04); q.crit = q.crit || crit; q.life = q.max; return; }
-    if (this.nums.length > 48) this.nums.shift();
+    const F = CONFIG.feel; if (!crit && this.nums.length > F.numsBusy) return; // écran chargé : seuls les critiques s'ajoutent
+    if (this.nums.length > F.numsMax) this.nums.shift();
     o.dn = { x: clamp(x + rand(-6, 6), 30, W - 30), y: Math.max(y, 130), v, crit, age: 0, life: crit ? 0.85 : 0.7, max: crit ? 0.85 : 0.7, vy: crit ? -95 : -75 };
     this.nums.push(o.dn);
   },
@@ -1007,13 +1050,22 @@ const Game = {
     c.fillStyle = 'rgba(255,255,255,.3)'; c.fillRect(x0, y0, w * r, Math.max(1, Math.round(h * 0.35)));
     if (w >= 60) { c.fillStyle = '#07080A'; const n = Math.max(2, Math.round(o.max * 10 / 40)), st = w / Math.min(n, 10); for (let i = 1; i < Math.min(n, 10); i++) c.fillRect(Math.round(x0 + i * st), y0, 1, h); }
   },
+  // forme ultime de l'arme (niveau 10) : nom affiché, gerbe de sa couleur, une fois par arme et par partie
+  wpnUlt() {
+    const f = this.p.wf; this.ultSeen = this.ultSeen || {}; if (this.ultSeen[f]) return; this.ultSeen[f] = 1;
+    UI.banner(tx('wpn.ultT'), tx('wpnUlt.' + f)); SFX.play('fuse'); SFX.vib([15, 30, 20], 2); this.spark(this.p.x, this.p.y - 20, WEAPONS[f].col, 16, 260);
+  },
+  wpnName(f = this.p.wf, L = this.p.wl) { return L >= 10 ? tx('wpnUlt.' + f) : WEAPONS[f].name; },
   floatText(x, y, txt, col) { this.texts.push({ x, y, txt, col, life: 1.1, max: 1.1 }); },
 
   /* ================= montée de niveau ================= */
   // compétences proposables : 6 différentes au plus (CONFIG.skills.maxActive) ; une fois plein, seulement celles déjà prises (+ effets immédiats)
   skillPool() {
     const full = this.slotsUsed() >= CONFIG.skills.maxActive;
-    return SKILLS.filter(s => (this.skills[s.id] || 0) < s.max && (!s.need || NEEDS[s.need](this)) && (!full || s.free || this.skills[s.id]));
+    return SKILLS.filter(s => (this.skills[s.id] || 0) < s.max && (!s.need || NEEDS[s.need](this)) && (!s.fuse || this.canFuse(s)) && (!full || s.free || s.fuse || this.skills[s.id]));
+  },
+  // fusion possible : les deux compétences d'origine sont au maximum
+  canFuse(s) { return s.fuse.every(id => (this.skills[id] || 0) >= SKILLS.find(o => o.id === id).max);
   },
   openLevelUp() {
     this.pend--; this.lvBreak = true;
@@ -1021,7 +1073,9 @@ const Game = {
     // tout est au maximum : des crédits à la place du choix
     if (!pool.length) { const b = Math.round((20 + this.d) * this.S.cred); this.cr += b; this.floatText(this.p.x, this.p.y - 70, tx('game.lvlCr', { n: b }), '#E9C979'); SFX.play('cr'); return; }
     this.state = 'levelup'; SFX.play('level'); this.keys = {}; this.ptr = null;
-    const opts = []; while (opts.length < 3 && pool.length) { const it = weighted(pool); opts.push(it.s); pool.splice(pool.indexOf(it), 1); }
+    // une fusion possible est toujours proposée (première carte)
+    const opts = [], fu = pool.find(o => o.s.fuse); if (fu) { opts.push(fu.s); pool.splice(pool.indexOf(fu), 1); SFX.play('fuse'); }
+    while (opts.length < 3 && pool.length) { const it = weighted(pool); opts.push(it.s); pool.splice(pool.indexOf(it), 1); }
     UI.showLevelUp(opts, this.lvl);
   },
   // expérience gagnée directement à la destruction (plus de points qui tombent) ; seuil : CONFIG.xp
@@ -1036,13 +1090,31 @@ const Game = {
     const T = this.xpTxt || (this.xpTxt = []); if (T.length >= 6) return;
     T.push({ x: clamp(x, 24, W - 24), y, v: Math.round(v), life: 0.55, max: 0.55 });
   },
+  skillDelta(s) {
+    const n = this.skills[s.id] || 0, r = CONFIG.skills.decay, f = (s.fx || [])[0];
+    if (f) {
+      const int = INT_STATS.has(f.stat), val = k => !k ? 0 : (f.base || 0) + (f.add || 0) * (int ? k : (1 - r ** k) / (1 - r));
+      const fm = v => int || !v ? String(Math.round(v)) : (v > 0 ? '+' : '') + Math.round(v * 100) + '\u00a0%';
+      if (s.fuse) { const m = this.mod(f.stat); return fm(m) + ' → ' + fm(m + val(1)); } // fusion : total de la statistique
+      return fm(val(n)) + ' → ' + fm(val(n + 1));
+    }
+    const T = s.take || {}, p = this.p;
+    if (T.shieldMax) return tx('lvl.shield') + ' ' + p.spMax + ' → ' + (p.spMax + T.shieldMax);
+    if (T.weapon) return tx('lvl.weapon') + ' ' + p.wl + ' → ' + Math.min(10, p.wl + T.weapon);
+    if (T.hp) return tx('lvl.hull') + ' ' + p.hp + ' → ' + Math.min(p.hpMax, p.hp + T.hp);
+    return '';
+  },
   takeSkill(s) {
     this.skills[s.id] = (this.skills[s.id] || 0) + 1; this.modC = null;
     const T = s.take || {};
     if (T.shieldMax) this.p.spMax += T.shieldMax;
     if (T.shield) this.shieldUp(T.shield);
     if (T.hp) this.repair(T.hp);
-    if (T.weapon) this.p.wl = Math.min(10, this.p.wl + T.weapon);
+    if (T.weapon) { this.p.wl = Math.min(10, this.p.wl + T.weapon); if (this.p.wl >= 10) this.wpnUlt(); }
+    if (s.fuse) { // fusion : annonce, gerbe dorée, découverte gardée (Profil, prochain objectif)
+      UI.banner(tx('fuse.done'), s.name); SFX.play('fuse'); SFX.vib([20, 40, 30], 3); this.spark(this.p.x, this.p.y, '#F2B84B', 18, 280);
+      if (!Store.d.fus[s.id]) { Store.d.fus[s.id] = 1; Store.save(); }
+    }
     this.state = 'play'; this.ts = 0.2; this.p.inv = Math.max(this.p.inv, 0.6);
   },
 
@@ -1055,13 +1127,17 @@ const Game = {
     const dmg = 9 * (1 + this.d * 0.07) * this.S.dmg;
     for (const e of this.ens) if (d2(e.x, e.y, p.x, hy) < (R + e.rx) ** 2) this.hurt(e, dmg, 'onde');
     if (this.boss) this.bossArea(p.x, hy, R, dmg * 1.5);
-    this.shake = 10; this.flashA = Store.d.set.fx ? 0.3 : 0.12; SFX.play('onde'); SFX.vib(40);
+    this.shake = 10; this.flashScreen(Store.d.set.fx ? 0.3 : 0.12); SFX.play('onde'); SFX.vib(40);
     this.ondeFx = { x: p.x, y: hy, t: 0, R };
+    if (this.S.pas === 'phase') { p.inv = Math.max(p.inv, 1.5); p.phaseT = 1.5; }
+    if (this.S.pas === 'omega') this.addUlt(0.12);
+    if (this.tuto && this.tuto.k === 'onde') this.tutoGo('cubeWait');
   },
   fireUlt() {
     if (this.state !== 'play' || this.ult < 1 || this.uf || this.cine || this.over || this.outro) { SFX.play('deny'); return; }
     this.ult = 0; this.ultLock = CONFIG.powers.ultLock * (this.mode === 'inf' ? CONFIG.powers.lockInf : 1); const type = this.ch.ult;
     this.cine = { t: 0, dur: 0.95, type, name: ULTS[type].name };
+    if (this.tuto && this.tuto.k === 'ult') this.tutoGo('done');
     this.p.inv = Math.max(this.p.inv, 4); SFX.play('ultcharge'); SFX.vib(30);
     Store.d.stats.ults = (Store.d.stats.ults || 0) + 1;
   },
@@ -1090,10 +1166,10 @@ const Game = {
       case 'blades': U.sp = (U.sp || 0) - dt; if (U.sp <= 0 && U.t < U.dur - 0.5) { U.sp = 0.035; this.pShot('blade', rand(20, W - 20), -30, Math.PI + rand(-0.1, 0.1), 950, 9 * K / 1.2); } break;
       case 'orbital': for (const col of U.cols) { if (!col.hit && U.t >= col.at + 0.18) { col.hit = true; colHit(col.x, 36, 20 * K); this.explode(col.x, H * 0.3, 60, this.Wd.boom); this.shake = Math.max(this.shake, 8); SFX.play('boom', 40); } } break;
       case 'boom': { U.y = H - (U.t / U.dur) * (H + 160); for (const e of this.ens) if (!e.dead && Math.abs(e.y - U.y) < 60) once(e, 26 * K); for (const b of this.eb) if (Math.abs(b.y - U.y) < 60) b.dead = true; if (this.boss && !U.bossHit && Math.abs(this.boss.y - U.y) < 80) { U.bossHit = true; this.bossArea(this.boss.x, this.boss.y, 999, 40 * K); } break; }
-      case 'shell': { const k = Math.min(1, U.t / 0.7); U.sx = lerp(p.x, U.tx, easeInOut(k)); U.sy = lerp(p.y, U.ty, easeInOut(k)); if (k >= 1 && !U.blown) { U.blown = true; const R = 300; for (const e of this.ens) if (!e.dead && d2(e.x, e.y, U.tx, U.ty) < R * R) this.hurt(e, 55 * K, 'ult'); this.eb = this.eb.filter(b => d2(b.x, b.y, U.tx, U.ty) > R * R); if (this.boss) this.bossArea(U.tx, U.ty, R, 60 * K); this.explode(U.tx, U.ty, 260, this.Wd.boom); this.flashA = 0.6; this.shake = 22; SFX.play('bigboom'); } break; }
+      case 'shell': { const k = Math.min(1, U.t / 0.7); U.sx = lerp(p.x, U.tx, easeInOut(k)); U.sy = lerp(p.y, U.ty, easeInOut(k)); if (k >= 1 && !U.blown) { U.blown = true; const R = 300; for (const e of this.ens) if (!e.dead && d2(e.x, e.y, U.tx, U.ty) < R * R) this.hurt(e, 55 * K, 'ult'); this.eb = this.eb.filter(b => d2(b.x, b.y, U.tx, U.ty) > R * R); if (this.boss) this.bossArea(U.tx, U.ty, R, 60 * K); this.explode(U.tx, U.ty, 260, this.Wd.boom); this.flashScreen(0.6); this.shake = 22; SFX.play('bigboom'); } break; }
       case 'ram': { U.y = H + 80 - (U.t / U.dur) * (H + 400); for (const e of this.ens) if (!e.dead && Math.abs(e.x - U.x) < 80 + e.rx && Math.abs(e.y - U.y) < 160) once(e, 40 * K); for (const b of this.eb) if (Math.abs(b.x - U.x) < 80 && Math.abs(b.y - U.y) < 170) b.dead = true; if (this.boss && !U.bossHit && Math.abs(this.boss.y - U.y) < 120) { U.bossHit = true; this.bossArea(U.x, this.boss.y, 999, 45 * K); } break; }
       case 'saturn': { const k = clamp((U.t - 0.2) / (U.dur - 0.6), 0, 1); U.y = H + 260 - k * k * (H + 700); if (tickNow && U.t > 0.3) colHit(U.x, 54, 3.4 * K, U.y + 300); this.shake = Math.max(this.shake, 6); break; }
-      case 'reset': if (!U.fired && U.t > 0.3) { U.fired = true; this.flashA = 1; for (const e of this.ens) if (!e.dead) this.hurt(e, Math.max(e.max * 0.55, 30 * K), 'ult'); this.eb = []; if (this.boss) { const B = this.boss; B.nodes.forEach((n, i) => { if (!n.dead && i % 2 === 0) this.hurtNode(n, n.max); }); if (!B.nodes.some(n => !n.dead)) this.hurtBoss(B.max * 0.12, 'ult'); } } break;
+      case 'reset': if (!U.fired && U.t > 0.3) { U.fired = true; this.flashScreen(0.85); for (const e of this.ens) if (!e.dead) this.hurt(e, Math.max(e.max * 0.55, 30 * K), 'ult'); this.eb = []; if (this.boss) { const B = this.boss; B.nodes.forEach((n, i) => { if (!n.dead && i % 2 === 0) this.hurtNode(n, n.max); }); if (!B.nodes.some(n => !n.dead)) this.hurtBoss(B.max * 0.12, 'ult'); } } break;
     }
     if (U.t >= U.dur) this.uf = null;
   },
@@ -1102,19 +1178,29 @@ const Game = {
   startBoss() {
     const Bd = this.Wd.boss, IP = CONFIG.infPower, D = Art.DEF[Bd.spr]; this.lvBreak = false;
     let k = CONFIG.difficulty.bossHp * (1 + this.d * CONFIG.difficulty.bossHpD);
+    // boss jamais bloquant : PV allégés de 15 % par défaite de suite sur cette mission (60 % au moins)
+    const fl = this.mode === 'mission' ? Store.d.fails[this.u * 5 + this.m] || 0 : 0, Hp = CONFIG.help; this.bossEase = fl ? Math.round((1 - Math.max(Hp.bossMin, 1 - Hp.bossStep * fl)) * 100) : 0;
+    k *= 1 - this.bossEase / 100;
     // Infini : le boss tient au moins bossT(n) secondes de tir parfait à la puissance mesurée
     if (this.mode === 'inf') k = Math.max(k, this.dps * (IP.bossT0 + IP.bossTN * this.infWave) / 300, this.infBossK || 0), this.infBossK = k;
     const w = Bd.w, h = w * D.h / D.w;
-    const B = this.boss = { Bd, spr: Bd.spr, w, h, x: W / 2, y: -h * 0.6 - 40, ty: H * Bd.ty, t: 0, hp: 300 * k, max: 300 * k, phase: 1, flash: 0, patI: -1, patT: 2.6, cur: null, pt: 0, st: 0, did: 0, nodes: [], rot: 0, entering: true, dying: false, deadT: 0 };
+    const B = this.boss = { Bd, spr: Bd.spr, w, h, x: W / 2, y: -h * 0.6 - 40, ty: H * Bd.ty, t: 0, hp: 300 * k, max: 300 * k, phase: 1, flash: 0, patI: -1, patT: 2.6, cur: null, pt: 0, st: 0, did: 0, nodes: [], rot: 0, entering: true, dying: false, deadT: 0, warn: CONFIG.feel.bossWarn, fillK: 0 };
     const N = Bd.nodes, nk = 18 * k;
     if (N.mode === 'orbit') for (let i = 0; i < N.n; i++) B.nodes.push({ a: i / N.n * TAU, hp: nk, max: nk, dead: false, flash: 0, x: W / 2, y: -100, rot: 0 });
     else N.pts.forEach(pt => B.nodes.push({ px: pt[0], py: pt[1], hp: nk, max: nk, dead: false, flash: 0, x: W / 2, y: -100, rot: 0 }));
-    UI.bossBar(Bd.name); UI.banner(Bd.name, tx('game.boss')); SFX.play('phase');
+    SFX.play('alarm'); SFX.vib([20, 90, 20], 3); // l'alerte d'abord : le nom et la barre arrivent avec le boss
     this.wave = null; this.F = null; Ideas.bossStart(this);
   },
   updBoss(dt) {
     const B = this.boss; if (!B) return; const p = this.p, Bd = B.Bd, N = Bd.nodes;
-    B.t += dt; B.flash -= dt; this.trail(B, dt);
+    if (B.warn > 0) {
+      const w0 = B.warn; B.warn -= dt; this.shake = Math.max(this.shake, 2.2);
+      if (Math.floor(w0 / 0.6) !== Math.floor(B.warn / 0.6) && B.warn > 0) SFX.play('alarm', 200);
+      if (B.warn <= 0) this.bossEnter(B);
+      return;
+    }
+    if (B.fillK < 1) B.fillK = Math.min(1, B.fillK + dt / 1.4); // la barre de vie se remplit pendant l'entrée
+    B.t += dt; this.heatStep(B, dt); this.trail(B, dt);
     if (B.dying) {
       B.deadT += dt;
       if (Math.random() < 0.35) this.explode(B.x + rand(-B.w * 0.4, B.w * 0.4), B.y + rand(-B.h * 0.3, B.h * 0.3), 90, this.Wd.boom);
@@ -1128,7 +1214,7 @@ const Game = {
     if (Bd.spinSprite) B.rot += dt * Bd.spinSprite * (B.phase > 2 ? 1.8 : 1);
     const sp = (N.spin || 0) * (B.phase > 1 ? 1.6 : 1);
     for (const n of B.nodes) {
-      n.flash -= dt; this.trail(n, dt);
+      this.heatStep(n, dt); this.trail(n, dt);
       if (N.mode === 'orbit') { n.a += dt * sp; n.x = B.x + Math.cos(n.a) * N.r; n.y = B.y + (N.cy || 0) + Math.sin(n.a) * N.r * N.ry; n.rot = N.rotate ? n.a + Math.PI / 2 : 0; }
       else { n.x = B.x + n.px; n.y = B.y + n.py; if (N.aim) n.rot = Math.atan2(-(p.x - n.x), (p.y - n.y)); }
     }
@@ -1163,7 +1249,7 @@ const Game = {
   bossPhase(n) {
     const B = this.boss; B.phase = n; B.patT = 1.2;
     if (n === 2) B.nodes.forEach((nd, i) => { if (nd.dead && i % 2 === 0) { nd.dead = false; nd.hp = nd.max * 0.6; } });
-    UI.banner(tx('game.phase', { n }), B.Bd.name); SFX.play('phase'); this.shake = 16; this.flashA = 0.3; Ideas.onPhase(this, n);
+    UI.banner(tx('game.phase', { n }), B.Bd.name); SFX.play('phase'); this.shake = 16; this.flashScreen(0.3); Ideas.onPhase(this, n);
     this.pk.push(this.newPk('gift', B.x, B.y + B.h * 0.3, 1, pick(FAMS)), this.newPk('up', B.x - 30, B.y + B.h * 0.3));
     for (const b of this.eb) b.dead = true;
   },
@@ -1177,7 +1263,7 @@ const Game = {
     }
   },
   hurtNode(n, dmg) {
-    if (n.dead) return; n.hp -= dmg; n.flash = 0.07; this.dmgAcc += dmg; this.dmgNum(n, n.x, n.y - (this.boss ? this.boss.Bd.nodes.w * 0.3 : 10), dmg, false); SFX.play('hit', 50);
+    if (n.dead) return; n.hp -= dmg; this.heatUp(n); this.dmgAcc += dmg; this.dmgNum(n, n.x, n.y - (this.boss ? this.boss.Bd.nodes.w * 0.3 : 10), dmg, false); SFX.play('hit', 50);
     if (n.hp <= 0) {
       n.dead = true; this.explode(n.x, n.y, 70, this.Wd.boom); SFX.play('boom'); this.score += 400 * this.scoreMul();
       this.gainXp(4, n.x, n.y);
@@ -1191,7 +1277,7 @@ const Game = {
     let crit = false;
     if ((src === 'shot' || src === 'arc' || src === 'rail') && Math.random() < this.S.crit + this.mod('crit')) { dmg *= this.S.critMul; crit = true; }
     this.dmgNum(B, x == null ? B.x + rand(-0.18, 0.18) * B.w : x, y == null ? B.y + rand(-0.1, 0.15) * B.h : y, dmg, crit);
-    B.hp -= dmg; B.flash = 0.06; this.addUlt(dmg * 0.0006); if (src !== 'ult') this.dmgAcc += dmg;
+    B.hp -= dmg; this.heatUp(B); this.addUlt(dmg * 0.0006); if (src !== 'ult') this.dmgAcc += dmg;
     if (src === 'shot') SFX.play('hit', 50);
     if (B.hp <= 0) this.bossDie();
   },
@@ -1205,10 +1291,12 @@ const Game = {
     for (const n of B.nodes) if (!n.dead && Math.abs(n.x - x) < hw + B.Bd.nodes.w * 0.45) this.hurtNode(n, dmg);
     if (Math.abs(B.x - x) < hw + B.w * 0.36) this.hurtBoss(B.nodes.some(n => !n.dead) ? dmg * 0.3 : dmg, 'ult');
   },
+  // fin de l'alerte : le boss entre, son nom s'affiche, sa barre de vie se remplit
+  bossEnter(B) { UI.bossBar(B.Bd.name); UI.banner(B.Bd.name, this.bossEase ? tx('help.bossEase', { n: this.bossEase }) : tx('game.boss')); SFX.play('phase'); },
   bossDie() {
-    const B = this.boss; B.dying = true; B.deadT = 0; B.hp = 0;
+    const B = this.boss; B.dying = true; B.deadT = 0; B.hp = 0; B.fillK = 1;
     this.score += 5000 * (this.wi + 1) * this.scoreMul();
-    this.ts = 0.25; this.shake = 24; this.flashA = 0.8; SFX.play('bigboom'); SFX.vib([60, 40, 120]);
+    this.ts = 0.25; this.shake = 24; this.flashScreen(0.7); SFX.play('bigboom'); SFX.vib([60, 40, 120], 3);
     for (const b of this.eb) b.dead = true; this.beams = [];
     for (let i = 0; i < 10; i++) this.pk.push(this.newPk('cr', B.x + rand(-60, 60), B.y + rand(-30, 30), Math.ceil(3 + this.d * 0.3)));
     this.gainXp(12, B.x, B.y);
@@ -1238,17 +1326,40 @@ const Game = {
   finish(win) {
     if (this.over) return; this.over = true; Ideas.end();
     if (this.boss || (this.steps && this.steps[this.stepI] === 'boss')) Ideas.bossEnd(this);
-    if (win) { this.outro = { t: 0, vy: 0, k: 0, done: false }; SFX.play('clear'); }
+    if (win) { this.outro = { t: 0, vy: 0, k: 0, done: false, sc: 1, a: 1, rot: 0 }; SFX.play('clear'); }
     else { this.explode(this.p.x, this.p.y, 140, this.Wd.boom); SFX.play('bigboom'); this.shake = 20; this.state = 'end'; setTimeout(() => { if (this.running) this.endScreen(false); }, 1300); }
   },
-  // sortie de victoire : le vaisseau se recentre un instant, puis remonte de plus en plus vite et sort par le haut
+  // sortie de victoire selon l'engin (retours n° 3) : l'avion et le vaisseau décollent (remontent en grossissant, ils prennent
+  // de l'altitude) ; le char roule hors de l'écran par la droite, sans jamais quitter le sol ; le navire file vers l'horizon
+  // (il remonte en rapetissant) ; le sous-marin plonge (nez vers le bas, il s'enfonce et disparaît dans le noir)
+  outroKind() { return this.veh === 'tank' ? 'drive' : this.veh === 'destroyer' ? 'sail' : this.veh === 'nautSide' ? 'dive' : 'lift'; },
   updOutro(dt) {
-    const O = this.outro, p = this.p; O.t += dt;
-    if (O.t < 0.7) { p.x += (W / 2 - p.x) * Math.min(1, dt * 2.5); return; }
-    if (!O.go) { O.go = true; SFX.play('swipe'); this.shake = Math.max(this.shake, 4); }
-    O.vy = Math.min(2600, O.vy + 2400 * dt); p.y -= O.vy * dt; p.tilt *= 0.9;
-    if (p.y < H * 0.35) O.k = clamp(O.k + dt * 1.6, 0, 1);
-    if (p.y < -160 && !O.done) { O.done = true; this.delay = { t: 0.35, fn: () => this.endScreen(true) }; }
+    const O = this.outro, p = this.p, K = O.kind || (O.kind = this.outroKind()); O.t += dt; p.tilt *= 0.9;
+    const end = () => { if (!O.done) { O.done = true; this.delay = { t: 0.35, fn: () => this.endScreen(true) }; } };
+    if (O.t < 0.7) { if (K === 'lift' || K === 'sail') p.x += (W / 2 - p.x) * Math.min(1, dt * 2.5); return; }
+    if (!O.go) { O.go = true; O.y0 = p.y; SFX.play(K === 'dive' ? 'splash' : K === 'drive' ? 'dust' : 'swipe'); this.shake = Math.max(this.shake, 4); }
+    if (K === 'drive') {
+      O.vx = Math.min(780, (O.vx || 60) + 620 * dt); p.x += O.vx * dt;
+      if (vrnd() < 0.5) this.fx.push({ type: 'puff', x: p.x - this.pW * 0.45, y: p.y + 24, vx: vrand(-60, -20), vy: vrand(-30, -5), life: 0.7, max: 0.7, size: 6, grow: 2, col: '#4A4236', a: 0.45 });
+      O.k = clamp((p.x - W * 0.6) / (W * 0.5), 0, 1); if (p.x > W + this.pW) end();
+    } else if (K === 'sail') {
+      O.vy = Math.min(520, O.vy + 300 * dt); p.y -= O.vy * dt;
+      O.sc = clamp(1 - (O.y0 - p.y) / (H * 0.75), 0.15, 1); O.a = clamp((O.sc - 0.15) / 0.3, 0, 1); O.k = 1 - O.a; if (O.a <= 0) end();
+    } else if (K === 'dive') {
+      O.vy = Math.min(320, O.vy + 260 * dt); p.y += O.vy * dt; p.x += 150 * dt; O.rot = Math.min(0.55, (O.rot || 0) + dt * 0.9);
+      O.a = clamp(1 - (O.t - 0.7) / 1.5, 0, 1); O.k = 1 - O.a;
+      if (vrnd() < 0.6) this.fx.push({ type: 'bubble', x: p.x - 60 + vrand(-10, 10), y: p.y + vrand(-8, 8), vx: vrand(-30, 10), vy: vrand(-90, -40), life: 1, max: 1, size: vrand(1.5, 4), col: '#DDF3F6' });
+      if (O.a <= 0) end();
+    } else {
+      O.vy = Math.min(2600, O.vy + 2400 * dt); p.y -= O.vy * dt; O.sc = 1 + 0.35 * clamp((O.y0 - p.y) / H, 0, 1);
+      if (p.y < H * 0.35) O.k = clamp(O.k + dt * 1.6, 0, 1);
+      if (p.y < -160) end();
+    }
+  },
+  // part de la mission accomplie (0 à 1) : étapes franchies, et PV retirés au boss
+  progress() {
+    if (!this.steps || !this.steps.length) return 0; const B = this.boss; let k = this.stepI;
+    if (B && B.max) k += 1 - Math.max(0, B.hp) / B.max; return clamp(k / this.steps.length, 0, 1);
   },
   starsGot() { const p = this.p; return [true, p.hp * 2 > p.hpMax, this.hpLost === 0]; },
   endScreen(win) {
@@ -1264,18 +1375,58 @@ const Game = {
         res.reward = Math.round((R.mission + this.d * R.missionD) * res.stars * this.S.cred * (res.first ? R.first : 1));
         res.perfect = res.stars === 3 && this.hits === 0; // parfait : 3 étoiles sans aucun coup reçu
         if (res.perfect) { res.bonus = Math.round(res.reward * R.perfect); st.perf[i] = true; }
+        if (res.first && i === 0) res.ff = R.firstFlight; // prime de premier vol : une amélioration à acheter tout de suite
+        delete st.fails[i];
         if (this.m === 4) { res.post = this.Wd.story.post; if (this.u === 9 && !st.owned.includes('omega')) { st.owned.push('omega'); res.omega = true; } if (this.u < WORLDS.length - 1 && res.first) res.unlock = this.u + 1; }
+      } else {
+        // défaite : récompense d'effort, « plus loin que la dernière fois », compteur de défaites (coup de pouce, boss allégé)
+        res.prog = this.progress(); res.prev = st.reach[i] || 0; res.farther = res.prev > 0 && res.prog > res.prev + 0.01; st.reach[i] = Math.max(res.prev, res.prog);
+        res.reward = Math.round((R.mission + this.d * R.missionD) * res.prog * R.lossK * this.S.cred);
+        st.fails[i] = (st.fails[i] || 0) + 1; res.fails = st.fails[i];
       }
     } else {
       const k = 't' + this.tier; res.wave = this.infWave; res.best = this.score > (st.best[k] || 0); if (res.best) st.best[k] = this.score; st.best['w' + this.tier] = Math.max(st.best['w' + this.tier] || 0, this.infWave);
       res.pal = this.pal; st.best['p' + this.tier] = Math.max(st.best['p' + this.tier] || 0, this.pal);
       res.reward = Math.round(this.infWave * (CONFIG.rewards.inf + this.tier * CONFIG.rewards.infTier) * this.S.cred);
     }
-    res.total = this.cr + res.reward + (res.bonus || 0); st.credits += res.total; Store.save();
+    // rang de pilote : chaque partie compte ; un rang franchi = des crédits
+    const K = CONFIG.rank, xp = Math.round(this.kills * K.kill + (win ? K.win + res.stars * K.star : K.loss) + (this.mode === 'inf' ? this.infWave * K.wave : 0));
+    const r0 = st.rank; st.pxp += xp; let rc = 0; while (st.pxp >= rankNeed(st.rank)) { st.pxp -= rankNeed(st.rank); st.rank++; rc += K.cr * st.rank; }
+    res.rank = { xp, from: r0, to: st.rank, cur: st.pxp, need: rankNeed(st.rank), cr: rc };
+    res.total = this.cr + res.reward + (res.bonus || 0) + (res.ff || 0) + rc; st.credits += res.total; Store.save();
     UI.showEnd(res);
   },
-  pause(on) { if (on && this.state === 'play') { this.state = 'paused'; this.keys = {}; UI.showPause(); } else if (!on && this.state === 'paused') { this.state = 'play'; UI.hideSheet(); } },
+  // pause ; reprise (retours n° 3) : « Touche l'écran pour reprendre », puis 3-2-1 ; now = reprise immédiate (outils, tests)
+  pause(on, now) {
+    if (on && (this.state === 'play' || this.state === 'resume')) { this.state = 'paused'; this.resume = null; this.keys = {}; UI.resumeWait(false); UI.showPause(); }
+    else if (!on && this.state === 'paused') { UI.hideSheet(); if (now) { this.state = 'play'; return; } this.state = 'resume'; this.resume = { wait: true, t: 0 }; UI.resumeWait(true); }
+  },
+  // le joueur touche l'écran : compte à rebours de 3 s (un chiffre par seconde), le doigt posé garde la main
+  resumeGo(e) {
+    const R = this.resume; if (this.state !== 'resume' || !R || !R.wait) return;
+    R.wait = false; R.t = 0; UI.resumeWait(false); SFX.play('beep');
+    if (e && e.pointerType && e.pointerType !== 'mouse' && this.p) { const [x, y] = this.toLogical(e); this.ptr = { id: e.pointerId, sx: x, sy: y, px: this.p.x, py: this.p.y }; this.p.tx = this.p.x; this.p.ty = this.p.y; }
+  },
+  updResume(rdt) {
+    const R = this.resume; if (!R || R.wait) return;
+    const was = Math.floor(R.t); R.t += rdt; if (Math.floor(R.t) !== was && R.t < 3) SFX.play('beep');
+    if (R.t >= 3) { this.resume = null; this.state = 'play'; this.p.inv = Math.max(this.p.inv, 0.5); }
+  },
   quit() { this.running = false; this.state = 'off'; this.keys = {}; this.ptr = null; },
+
+  /* ================= sécurité des flashs (retours n° 3, CONFIG.flash) ================= */
+  // un grand flash (plein écran ou lueur large) n'est permis que s'il y en a eu moins de maxPerSec dans la dernière seconde (temps réel)
+  bigFlash() {
+    const L = this.flashLog || (this.flashLog = []), now = this.rt || 0;
+    while (L.length && now - L[0] >= 1) L.shift();
+    if (L.length >= CONFIG.flash.maxPerSec) return false;
+    L.push(now); (this.flashAll || (this.flashAll = [])).push(now); return true;
+  },
+  flashScreen(a) { if (a > this.flashA + 0.05 && this.bigFlash()) this.flashA = a; },
+  // lueur continue des cibles touchées (boss, nœuds, gros ennemis) : elle monte tant que les coups pleuvent, redescend en douceur
+  heatUp(o) { o.hitT = this.t; },
+  heatStep(o, dt) { const on = o.hitT != null && this.t - o.hitT < 0.35, h = o.heat || 0; o.heat = on ? Math.min(1, h + dt * 4) : Math.max(0, h - dt * 1.6); },
+  bigOne(e) { return e.mini || e.elite || e.A.hp >= 3; }, // lourds, boucliers, bombardiers, scindeurs, mini-boss, As
 
   /* ================= effets ================= */
   // effets visuels : hasard séparé (vrand), donc sans effet sur le déroulé de la partie
@@ -1292,7 +1443,7 @@ const Game = {
     const busy = this.fx.length > 380, fxOn = Store.d.set.fx && !busy, n = Math.round(clamp(size / 4, 6, 24) * (fxOn ? 1 : 0.5)); if (this.fx.length > 1000) return;
     const P = o => this.fx.push(o), add = !this.Wd.light, R = vrand;
     const pal = { tech: ['#C9F2DA', '#8AD6A8'], brass: ['#F3DFAE', '#E8CF98'], bubble: ['#DDF3F6', '#9FD3D6'], smoke: ['#F6D9A6', '#E8A15A'], sky: ['#FFF4E4', '#F0C88A'], space: ['#FFFFFF', '#A9CFE0'], neo: ['#E8F4FF', '#9CC8E8'], gold: ['#FFF0BE', '#E9C979'], film: ['#FFFFFF', '#CFCFCF'], relief: ['#FFE9C2', '#F2A65A'] }[style] || ['#FFFFFF', '#E8A15A'];
-    P({ type: 'flash', x, y, life: 0.16, max: 0.16, size: size * 1.3, col: pal[1], add });
+    if (size * 1.3 < CONFIG.flash.bigR + 10 || this.bigFlash()) P({ type: 'flash', x, y, life: 0.16, max: 0.16, size: size * 1.3, col: pal[1], add });
     // boule de feu : cœur blanc qui vire à la couleur de l'univers puis s'éteint (boules décalées, jamais un rond seul au centre d'un anneau)
     const nf = size > 50 ? 3 : busy ? 1 : 2;
     for (let i = 0; i < nf; i++) { const a = R(0, TAU), r = R(0.05, 0.2) * size, s = R(0.3, 0.7) * size; P({ type: 'fire', x: x + Math.cos(a) * r, y: y + Math.sin(a) * r, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: R(0.26, 0.4) * (1 + size / 260), max: 0.4 * (1 + size / 260), size: size * R(0.3, 0.46), col: pal[1], add }); }
@@ -1347,11 +1498,16 @@ const Game = {
     const z = this.cam ? this.cam.z : 1;
     if (z > 1.001) { const fx = p.x, fy = p.y + this.hitOff; c.translate(fx, fy); c.scale(z, z); c.translate(-fx, -fy); }
     if (this.shake > 0 && Store.d.set.shake) c.translate(vrand(-1, 1) * this.shake * 0.5, vrand(-1, 1) * this.shake * 0.5);
-    if (Wd.dynEvery) {
-      // décor animé coûteux (sol en perspective) : peint avec le fond dans une toile en cache, une image sur dynEvery
-      const bw = this.bg.width, bh = this.bg.height;
-      if (!this.dynCv || this.dynCv.width !== bw || this.dynCv.height !== bh || this.dynW !== Wd) { this.dynCv = document.createElement('canvas'); this.dynCv.width = bw; this.dynCv.height = bh; this.dynW = Wd; this.dynN = 0; }
-      if (this.dynN++ % Wd.dynEvery === 0) { const g = this.dynCv.getContext('2d'); g.setTransform(this.dpr, 0, 0, this.dpr, 0, 0); g.drawImage(this.bg, 0, 0, W, H); Wd.bgDyn(g, t, this); }
+    if (Wd.dynRes && this.dpr > Wd.dynRes) {
+      // décor animé coûteux (sol en perspective, retours n° 3) : repeint à CHAQUE image (défilement continu), mais au plus à
+      // Wd.dynRes pixel par unité de jeu, dans une toile agrandie à l'écran : on baisse la finesse, jamais la fluidité
+      const k = Wd.dynRes, bw = Math.round(W * k), bh = Math.round(H * k);
+      if (!this.dynCv || this.dynCv.width !== bw || this.dynCv.height !== bh || this.dynW !== Wd) {
+        this.dynCv = document.createElement('canvas'); this.dynCv.width = bw; this.dynCv.height = bh; this.dynW = Wd;
+        // fond fixe réduit une seule fois à la même résolution : la copie de chaque image se fait pixel pour pixel
+        this.dynBg = document.createElement('canvas'); this.dynBg.width = bw; this.dynBg.height = bh; this.dynBg.getContext('2d').drawImage(this.bg, 0, 0, bw, bh);
+      }
+      const g = this.dynCv.getContext('2d'); g.setTransform(1, 0, 0, 1, 0, 0); g.drawImage(this.dynBg, 0, 0); g.setTransform(k, 0, 0, k, 0, 0); Wd.bgDyn(g, t, this);
       c.drawImage(this.dynCv, 0, 0, W, H);
       BG.drawLayers(c, Wd, t, false, this.dpr);
     } else {
@@ -1379,6 +1535,116 @@ const Game = {
     if (Wd.overlay) Wd.overlay(c, t, this);
     if (this.intro) this.drawIntro(c);
     this.drawTexts(c);
+    if (this.state === 'resume') this.drawResume(c);
+    else if (this.tuto && this.state === 'play' && !this.cine) this.drawTuto(c);
+    if (this.boss && this.boss.warn > 0) this.drawBossWarn(c);
+  },
+  // reprise : « Touche l'écran pour reprendre », puis 3 · 2 · 1 (chiffre qui se pose, anneau qui se vide)
+  drawResume(c) {
+    const R = this.resume; if (!R) return; const k = this.tsK(), y = H * 0.44;
+    c.save(); c.fillStyle = 'rgba(4,6,10,.45)'; c.fillRect(0, 0, W, H);
+    c.textAlign = 'center'; c.textBaseline = 'middle'; c.lineJoin = 'round';
+    if (R.wait) {
+      c.globalAlpha = 0.8 + 0.2 * Math.sin((this.rt || 0) * 3);
+      c.font = `700 ${Math.round(26 * k)}px ${FONT}`; c.lineWidth = 6; c.strokeStyle = '#07080A'; c.strokeText(tx('resume.tap'), W / 2, y); c.fillStyle = '#F2F4F7'; c.fillText(tx('resume.tap'), W / 2, y);
+      // doigt stylisé : chevron qui monte et descend (aucun rond)
+      const fy = y + 64 * k + Math.sin((this.rt || 0) * 4) * 6; c.strokeStyle = '#BFD9F5'; c.lineWidth = 5; c.lineCap = 'round';
+      c.beginPath(); c.moveTo(W / 2 - 16, fy + 10); c.lineTo(W / 2, fy - 6); c.lineTo(W / 2 + 16, fy + 10); c.stroke();
+    } else {
+      const n = 3 - Math.floor(R.t), f = R.t % 1, s = 1 + 0.45 * (1 - easeOut(Math.min(1, f / 0.22)));
+      c.lineCap = 'round'; c.strokeStyle = 'rgba(0,0,0,.6)'; c.lineWidth = 12; c.beginPath(); c.arc(W / 2, y, 74, 0, TAU); c.stroke();
+      c.strokeStyle = '#BFD9F5'; c.lineWidth = 6; c.beginPath(); c.arc(W / 2, y, 74, -Math.PI / 2, -Math.PI / 2 + TAU * (1 - f)); c.stroke();
+      c.font = `700 ${Math.round(96 * k * s)}px ${FONT}`; c.lineWidth = 10; c.strokeStyle = '#07080A'; c.strokeText(String(n), W / 2, y + 4); c.fillStyle = '#F2F4F7'; c.fillText(String(n), W / 2, y + 4);
+    }
+    c.restore();
+  },
+  // alerte avant le boss : « SIGNAL MAJEUR », deux bandeaux rayés qui respirent (1,2 fois par seconde, jamais de flash)
+  drawBossWarn(c) {
+    const B = this.boss; if (!B || !(B.warn > 0)) return; const k = this.tsK(), D = CONFIG.feel.bossWarn, el = D - B.warn;
+    const a = Math.min(1, el / 0.25, B.warn / 0.25) * (0.75 + 0.25 * Math.sin(el * TAU * 1.2)), y = H * 0.36, bh = 18;
+    c.save(); c.globalAlpha = a;
+    c.fillStyle = 'rgba(8,6,6,.9)'; c.fillRect(0, y - 70, W, 140);
+    for (const by of [y - 62, y + 44]) {
+      c.save(); c.beginPath(); c.rect(0, by, W, bh); c.clip(); c.fillStyle = '#2A0F0C'; c.fillRect(0, by, W, bh); c.fillStyle = '#D9705F';
+      const off = (el * 60) % 36; for (let x = -36 + off; x < W + 36; x += 36) { c.beginPath(); c.moveTo(x, by + bh); c.lineTo(x + 18, by); c.lineTo(x + 30, by); c.lineTo(x + 12, by + bh); c.closePath(); c.fill(); }
+      c.restore();
+    }
+    c.textAlign = 'center'; c.textBaseline = 'middle'; c.lineJoin = 'round';
+    c.font = `700 ${Math.round(40 * k)}px ${FONT}`; c.lineWidth = 7; c.strokeStyle = '#07080A'; c.strokeText(tx('game.bossWarn'), W / 2, y - 6); c.fillStyle = '#F2EEE6'; c.fillText(tx('game.bossWarn'), W / 2, y - 6);
+    c.font = `600 ${Math.round(16 * k)}px ${FONT}`; c.lineWidth = 4; c.strokeText(tx('game.bossWarnSub'), W / 2, y + 26); c.fillStyle = '#E8A15A'; c.fillText(tx('game.bossWarnSub'), W / 2, y + 26);
+    c.restore();
+  },
+
+  /* ================= tutoriel par l'action (retours n° 3, ANALYSE §3.1) ================= */
+  // mission 01-1 tant qu'elle n'est pas gagnée : une notion à la fois, jamais de bulle sur les ennemis
+  // glisser pour bouger → l'Onde offerte pleine quand les tirs arrivent → un cube d'arme au calme, au centre → l'Ultime sur le gros vaisseau
+  tutoInit() {
+    this.tuto = this.mode === 'mission' && this.u === 0 && this.m === 0 && !Store.d.done[0] ? { k: 'move', t: 0, dist: 0, cubeOk: false } : null;
+    UI.tutoBtn(null);
+  },
+  tutoGo(k) {
+    const T = this.tuto; if (!T) return; T.k = k; T.t = 0;
+    UI.tutoBtn(k === 'onde' ? 'onde' : k === 'ult' ? 'ult' : null);
+    if (k === 'onde') this.onde = 1; // offerte pleine
+    if (k === 'ult') this.ult = 1;
+    if (k === 'done') { this.tuto = null; Store.d.seen.tuto = true; Store.save(); }
+  },
+  tutoStep(dt) {
+    const T = this.tuto; if (this.state !== 'play' || this.cine) return; T.t += dt; const p = this.p;
+    const calm = !this.wave && !this.ens.some(e => !e.dead) && !this.boss;
+    if (T.k === 'move') {
+      if (T.t > 2.8) T.dist += Math.abs(p.x - (T.px ?? p.x)) + Math.abs(p.y - (T.py ?? p.y)); T.px = p.x; T.py = p.y;
+      if (T.dist > 240 || T.t > 13) this.tutoGo('ondeWait');
+    } else if (T.k === 'ondeWait') {
+      if ((this.eb.length >= 4 && T.t > 2) || T.t > 14) this.tutoGo('onde');
+    } else if (T.k === 'onde') {
+      if (T.t > 14) this.tutoGo('cubeWait'); // pas touchée : on passe, elle reste pleine
+    } else if (T.k === 'cubeWait') {
+      const mini = this.ens.some(e => e.mini && !e.dead);
+      if (calm && this.delay) {
+        T.cubeOk = true; const q = this.newPk('gift', W / 2, H * 0.3, 1, pick(FAMS.filter(f => f !== p.wf))); q.tip = true; this.pk.push(q);
+        this.delay.t += 3.5; this.tutoGo('cube');
+      } else if (mini) { T.cubeOk = true; this.tutoGo('ultWait'); }
+    } else if (T.k === 'cube') {
+      if (!this.pk.some(q => q.k === 'gift' && !q.dead) || T.t > 10) this.tutoGo('ultWait');
+    } else if (T.k === 'ultWait') {
+      if (this.ens.some(e => e.mini && !e.dead && e.state !== 'enter' && e.y > 60)) this.tutoGo('ult');
+      else if (this.over) this.tutoGo('done');
+    } else if (T.k === 'ult' && this.over) this.tutoGo('done');
+  },
+  drawTuto(c) {
+    const T = this.tuto, k = this.tsK(), p = this.p, a = clamp(T.t / 0.35, 0, 1);
+    const plate = (txt, x, y, align) => {
+      c.font = `700 ${Math.round(17 * k)}px ${FONT}`; const w = c.measureText(txt).width + 26 * k, h = 36 * k;
+      let x0 = align === 'left' ? x : align === 'right' ? x - w : x - w / 2; x0 = clamp(x0, 10, W - 10 - w);
+      c.fillStyle = 'rgba(18,20,25,.9)'; c.strokeStyle = '#07080A'; c.lineWidth = 3; c.fillRect(x0, y - h / 2, w, h); c.strokeRect(x0, y - h / 2, w, h);
+      c.fillStyle = '#F2F4F7'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(txt, x0 + w / 2, y + 1);
+    };
+    const bob = Math.sin((this.rt || 0) * 5);
+    c.save(); c.lineCap = 'round'; c.lineJoin = 'round';
+    if (T.k === 'move' && T.t > 2.8) {
+      c.globalAlpha = clamp((T.t - 2.8) / 0.4, 0, 1);
+      // chevrons de part et d'autre du vaisseau : « glisse à gauche, à droite »
+      c.strokeStyle = '#BFD9F5'; c.lineWidth = 5;
+      for (const s of [-1, 1]) { const x = p.x + s * (this.pW * 0.5 + 26 + 7 * bob); c.beginPath(); c.moveTo(x - s * 9, p.y - 14); c.lineTo(x + s * 5, p.y); c.lineTo(x - s * 9, p.y + 14); c.stroke(); }
+      plate(tx(matchMedia('(pointer: coarse)').matches ? 'hint.moveTouch' : 'hint.moveMouse'), p.x, p.y - this.pW * 0.6 - 46, 'center');
+    } else if (T.k === 'onde' || T.k === 'ult') {
+      const b = UI.btnBox(T.k === 'onde' ? '#ondeBtn' : '#ultBtn'); if (b) {
+        c.globalAlpha = a; const y = b.top - 34 - 4 * bob;
+        plate(tx(T.k === 'onde' ? 'tuto.onde' : 'tuto.ult'), b.cx, y, T.k === 'onde' ? 'right' : 'left');
+        // flèche vers le bouton
+        c.strokeStyle = '#BFD9F5'; c.lineWidth = 5; const ay = b.top - 12 - 4 * bob; c.beginPath(); c.moveTo(b.cx - 10, ay - 10); c.lineTo(b.cx, ay); c.lineTo(b.cx + 10, ay - 10); c.stroke();
+      }
+    }
+    c.restore();
+  },
+  // noyau de touche : petit losange lumineux au point exact où le vaisseau peut être touché (frôler devient un jeu d'adresse)
+  drawCore(c, t) {
+    const p = this.p, x = p.x, y = p.y + this.hitOff, r = Math.max(4, this.hitR * 0.55), q = 0.85 + 0.15 * Math.sin(t * 3);
+    c.save(); c.globalCompositeOperation = this.addMode; Art.glow(c, x, y, r * 3.2, '#BFE3F5', 0.45 * q); c.restore();
+    c.save(); c.lineJoin = 'miter';
+    c.beginPath(); c.moveTo(x, y - r * 1.35); c.lineTo(x + r, y); c.lineTo(x, y + r * 1.35); c.lineTo(x - r, y); c.closePath();
+    c.fillStyle = '#F4FBFF'; c.fill(); c.lineWidth = 2; c.strokeStyle = '#2B6FA8'; c.stroke(); c.restore();
   },
   drawPickups(c) {
     // (plus de points d'XP : l'expérience est gagnée à la destruction, retours n° 2)
@@ -1389,7 +1655,18 @@ const Game = {
       else if (q.k === 'hp') Art.draw(c, 'pk_hp', q.x, q.y + bob, 30);
       else if (q.k === 'sh') Art.draw(c, 'pk_sh', q.x, q.y + bob, 30);
       else if (q.k === 'gift') this.drawCube(c, q, bob);
+      else if (q.k === 'caps') this.drawCaps(c, q, bob);
     }
+  },
+  // capsule du mini-boss : gélule dorée, dessin de son contenu, nom dessous
+  drawCaps(c, q, bob) {
+    const col = '#F2B84B', k = this.tsK(), y = q.y + bob, ic = { arm: 'wpn', shield: 'hull', level: 'dmg' }[q.fam] || 'wpn';
+    c.save(); c.translate(q.x, y); c.globalCompositeOperation = this.addMode; Art.glow(c, 0, 0, 40, col, 0.5); c.globalCompositeOperation = 'source-over';
+    c.fillStyle = '#07080A'; c.beginPath(); c.roundRect ? c.roundRect(-26, -18, 52, 36, 18) : c.rect(-26, -18, 52, 36); c.fill();
+    c.fillStyle = hexA(col, 0.25); c.strokeStyle = col; c.lineWidth = 2.8; c.beginPath(); c.roundRect ? c.roundRect(-23, -15, 46, 30, 15) : c.rect(-23, -15, 46, 30); c.fill(); c.stroke();
+    c.lineWidth = 2.4; c.lineCap = 'round'; c.lineJoin = 'round'; c.strokeStyle = '#FFF4D8'; c.translate(-10, -10); c.scale(20 / 24, 20 / 24); c.stroke(Art.path(ICONS[ic])); c.restore();
+    c.font = `700 ${Math.round(12 * k)}px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'alphabetic'; c.lineJoin = 'round';
+    const t = tx('caps.' + q.fam); c.lineWidth = 3.5; c.strokeStyle = '#07080A'; c.strokeText(t, q.x, y + 34); c.fillStyle = col; c.fillText(t, q.x, y + 34);
   },
   // cube d'arme : plus grand, teinté de la couleur de l'arme, icône épaisse, nom dessous ; bulle d'explication aux premiers
   drawCube(c, q, bob) {
@@ -1402,6 +1679,14 @@ const Game = {
     c.font = `700 ${Math.round(12 * k)}px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'alphabetic'; c.lineJoin = 'round';
     c.lineWidth = 3.5; c.strokeStyle = '#07080A'; c.strokeText(Wf.name, q.x, y + 34); c.fillStyle = col; c.fillText(Wf.name, q.x, y + 34);
     if (q.tip) this.drawTip(c, q.x, y, tx('cube.tip'));
+  },
+  // mort comprise : mire qui se resserre sur le tir fatal, voile rouge léger (aucun flash)
+  drawDeathCam(c) {
+    const D = this.deathCam; if (!D) return; const k = Math.min(1, D.t / 0.3), r = 70 - 42 * easeOut(k), L = 12;
+    c.save(); c.fillStyle = `rgba(60,8,4,${0.25 * k})`; c.fillRect(0, 0, W, H);
+    c.strokeStyle = '#FF7A5C'; c.lineWidth = 3; c.lineCap = 'round'; c.beginPath();
+    for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) { const x = D.x + sx * r, y = D.y + sy * r; c.moveTo(x, y - sy * L); c.lineTo(x, y); c.lineTo(x - sx * L, y); }
+    c.stroke(); c.restore();
   },
   // bulle qui pointe un objet (au-dessus, ou dessous si trop haut)
   drawTip(c, x, y, txt) {
@@ -1430,7 +1715,7 @@ const Game = {
       const D = Art.DEF[e.spr];
       if (D.rotor) { const sc = e.w / D.w; c.save(); c.translate(e.x, e.y); c.rotate(e.rot); c.fillStyle = 'rgba(40,36,32,.18)'; c.beginPath(); c.arc(D.rotor[0] * sc, D.rotor[1] * sc, D.rotor[2] * sc, 0, TAU); c.fill(); c.restore(); }
       if (D.flame) { const sc = e.w / D.w, ang = e.rot, fx = e.x + (Math.cos(ang) * D.flame[0] - Math.sin(ang) * D.flame[1]) * sc, fy = e.y + (Math.sin(ang) * D.flame[0] + Math.cos(ang) * D.flame[1]) * sc; c.save(); c.globalCompositeOperation = this.addMode; Art.glow(c, fx, fy, 12 + Math.sin(t * 40) * 2, '#F0B070', 0.8); c.restore(); }
-      Art.draw(c, e.spr, e.x, e.y, e.w, e.rot, e.flip, 1, e.flash > 0 ? 0.85 : 0);
+      Art.draw(c, e.spr, e.x, e.y - (e.kick || 0), e.w, e.rot, e.flip, 1, e.heat > 0.02 ? e.heat * 0.45 : e.flash > 0 ? 0.85 : 0);
       if (D.light) { c.save(); c.globalCompositeOperation = 'lighter'; const sc = e.w / D.w; Art.glow(c, e.x + D.light[0] * sc, e.y + D.light[1] * sc, 22 + Math.sin(t * 4) * 4, D.light[2], 0.6); c.restore(); }
       // gel : voile bleuté et éclats de glace en pointes (pas de cercle autour d'un centre clair : ça ferait un œil)
       if (e.frozen > 0) {
@@ -1462,12 +1747,12 @@ const Game = {
     const a = B.dying ? Math.max(0, 1 - B.deadT / 1.7) : 1;
     const shielded = B.nodes.some(n => !n.dead);
     if (this.persp) Art.shadow(c, B.spr, B.x + 26, B.y + B.h * 0.3, B.w * 0.94, B.rot, false, 0.2 * a);
-    Art.draw(c, B.spr, B.x, B.y, B.w, B.rot, false, a, B.flash > 0 ? 0.6 : 0);
+    Art.draw(c, B.spr, B.x, B.y, B.w, B.rot, false, a, (B.heat || 0) * CONFIG.flash.heatMax);
     if (B.Bd.deco && !B.dying) B.Bd.deco(c, B, t);
     if (shielded && !B.dying) { c.strokeStyle = hexA(this.Wd.accent, 0.22 + Math.sin(t * 5) * 0.08); c.lineWidth = 2; c.beginPath(); c.ellipse(B.x, B.y, B.w * 0.4, B.h * 0.38, 0, 0, TAU); c.stroke(); }
-    if (!B.dying) for (const n of B.nodes) if (!n.dead) { Art.draw(c, N.spr, n.x, n.y, N.w, n.rot, false, 1, n.flash > 0 ? 0.8 : 0); if (n.hp < n.max) this.hpBar(c, n.x, n.y + N.w * 0.5 + 5, 38, 5, n); }
+    if (!B.dying) for (const n of B.nodes) if (!n.dead) { Art.draw(c, N.spr, n.x, n.y, N.w, n.rot, false, 1, (n.heat || 0) * 0.5); if (n.hp < n.max) this.hpBar(c, n.x, n.y + N.w * 0.5 + 5, 38, 5, n); }
     for (const b of this.beams) {
-      if (b.warn > 0) { c.strokeStyle = hexA(this.Wd.accent, 0.4 + Math.sin(t * 40) * 0.25); c.setLineDash([10, 10]); c.lineWidth = 2; c.beginPath(); c.moveTo(b.x, 0); c.lineTo(b.x, H); c.stroke(); c.setLineDash([]); }
+      if (b.warn > 0) { c.strokeStyle = hexA(this.Wd.accent, 0.45 + Math.sin(t * TAU * 2.5) * 0.2); c.setLineDash([10, 10]); c.lineWidth = 2; c.beginPath(); c.moveTo(b.x, 0); c.lineTo(b.x, H); c.stroke(); c.setLineDash([]); }
       else { c.save(); c.globalCompositeOperation = this.addMode; const g = c.createLinearGradient(b.x - 30, 0, b.x + 30, 0); g.addColorStop(0, hexA(this.Wd.accent, 0)); g.addColorStop(0.5, hexA(this.Wd.accent, 0.7)); g.addColorStop(1, hexA(this.Wd.accent, 0)); c.fillStyle = g; c.fillRect(b.x - 30, 0, 60, H); c.fillStyle = '#FFFFFF'; c.fillRect(b.x - 4, 0, 8, H); c.restore(); }
     }
   },
@@ -1475,24 +1760,38 @@ const Game = {
     // translucides : en mode additif ils le sont déjà ; sur les univers clairs, opacité réduite
     c.save(); c.globalCompositeOperation = this.addMode; if (this.addMode !== 'lighter') c.globalAlpha = 0.8;
     for (const b of this.pb) {
-      if (b.kind === 'imp') Art.draw(c, 'p_imp', b.x, b.y, 12, Math.atan2(b.vx, -b.vy), false, b.passed ? 0.35 : 1);
-      else if (b.kind === 'plasma') Art.draw(c, 'p_plasma', b.x, b.y, 30);
-      else if (b.kind === 'missile') { Art.glow(c, b.x - b.vx * 0.012, b.y - b.vy * 0.012, 8, WEAPONS.swarm.col, 0.8); Art.draw(c, 'p_missile', b.x, b.y, 12, Math.atan2(b.vx, -b.vy)); }
+      // l'arme grossit à chaque niveau ; forme ultime (niveau 10) : halo de sa couleur
+      const lk = 1 + ((b.lv || 1) - 1) * 0.045, ul = b.lv >= 10;
+      if (b.kind === 'imp') { Art.draw(c, 'p_imp', b.x, b.y, 12 * lk, Math.atan2(b.vx, -b.vy), false, b.passed ? 0.35 : 1); }
+      else if (b.kind === 'plasma') { if (ul) Art.glow(c, b.x, b.y, 30, WEAPONS.plasma.col, 0.5); Art.draw(c, 'p_plasma', b.x, b.y, 30 * lk); }
+      else if (b.kind === 'missile') { Art.glow(c, b.x - b.vx * 0.012, b.y - b.vy * 0.012, ul ? 13 : 8, WEAPONS.swarm.col, 0.8); Art.draw(c, 'p_missile', b.x, b.y, 12 * lk, Math.atan2(b.vx, -b.vy)); }
       else if (b.kind === 'shard') Art.draw(c, 'p_shard', b.x, b.y, 10, Math.atan2(b.vx, -b.vy));
       else if (b.kind === 'blade') Art.draw(c, 'p_blade', b.x, b.y, 40, Math.atan2(b.vx, -b.vy) + Math.PI);
     }
-    for (const z of this.zaps) { const a = z.life / z.max; c.strokeStyle = hexA(z.col, 0.35 * a); c.lineWidth = 6; this.poly(c, z.pts); c.strokeStyle = `rgba(255,255,255,${0.9 * a})`; c.lineWidth = 1.6; this.poly(c, z.pts); }
-    for (const r of this.rails) { const a = r.life / r.max; c.fillStyle = `rgba(242,242,244,${0.25 * a})`; c.fillRect(r.x - r.w, 0, r.w * 2, r.y0); c.fillStyle = `rgba(255,255,255,${0.95 * a})`; c.fillRect(r.x - 1.5, 0, 3, r.y0); }
+    for (const z of this.zaps) { const a = Math.min(1, z.life / 0.05); c.strokeStyle = hexA(z.col, 0.35 * a); c.lineWidth = 6; this.poly(c, z.pts); c.strokeStyle = `rgba(255,255,255,${0.9 * a})`; c.lineWidth = 1.6; this.poly(c, z.pts); }
+    for (const r of this.rails) { const a = r.life / r.max; c.fillStyle = r.ult ? hexA('#F2D58A', 0.3 * a) : `rgba(242,242,244,${0.25 * a})`; c.fillRect(r.x - r.w, 0, r.w * 2, r.y0); c.fillStyle = `rgba(255,255,255,${0.95 * a})`; c.fillRect(r.x - 1.5, 0, 3, r.y0); }
     c.restore();
+  },
+  // puissance acquise pendant la partie (0 à 1) : niveaux de compétences et niveau de l'arme
+  glowK() {
+    if (this.powC && this.powC.t === this.modC && this.powC.wl === this.p.wl) return this.powC.k;
+    let n = 0, r = 0; for (const s of SKILLS) { const l = this.skills[s.id] || 0; if (!l || s.free) continue; n += s.fuse ? 3 : l; r = Math.max(r, s.r); }
+    const k = clamp(n / 16 + (this.p.wl - 1) / 18, 0, 1); this.powC = { t: this.modC, wl: this.p.wl, k, col: RARITY[r] ? RARITY[r].col : '#EEF0F2' };
+    return k;
+  },
+  // liseré lumineux autour de la silhouette, couleur de la meilleure rareté prise ; respire lentement (jamais de clignotement)
+  drawRim(c, x, y, rot, k, oa) {
+    if (k < 0.08 || oa < 0.05) return; const a = (0.15 + 0.35 * k) * (0.88 + 0.12 * Math.sin(this.t * 2.2)) * oa;
+    c.save(); c.globalCompositeOperation = this.addMode; Art.rim(c, this.pSpr, x, y, this.pW, rot, this.powC.col, a * 0.5, 1.16); Art.rim(c, this.pSpr, x, y, this.pW, rot, this.powC.col, a, 1.07); c.restore();
   },
   poly(c, pts) { c.beginPath(); c.moveTo(pts[0], pts[1]); for (let i = 2; i < pts.length; i += 2) c.lineTo(pts[i], pts[i + 1]); c.stroke(); },
   drawPlayer(c) {
     const p = this.p; if (this.over && !this.outro) return;
-    const t = this.t, D = Art.DEF[this.pSpr], sc = this.pSc, top = !this.Wd.vehicle || this.Wd.vehicle === 'late';
+    const t = this.t, D = Art.DEF[this.pSpr], sc = this.pSc, top = !this.veh || this.veh === 'late';
     // halo de l'onde (charge visible autour du vaisseau)
-    const hy = p.y + this.hitOff, R = Math.max(30, this.pW * 0.55);
+    const hy = p.y + this.hitOff, R = Math.max(30, this.pW * 0.55), pk = this.glowK();
     c.save(); c.globalCompositeOperation = this.addMode;
-    if (D.eng) for (const [ex, ey, s] of D.eng) { const fl = 0.85 + Math.sin(t * 43 + ex) * 0.15, rr = clamp(this.pW / 4, 10, 24) * s * fl; Art.glow(c, p.x + ex * sc, p.y + ey * sc + rr * 0.3, rr, '#F0B070', 0.85); Art.glow(c, p.x + ex * sc, p.y + ey * sc, rr * 0.35, '#FFF4E4', 0.9); }
+    if (D.eng) for (const [ex, ey, s] of D.eng) { const fl = 0.85 + Math.sin(t * 43 + ex) * 0.15, rr = clamp(this.pW / 4, 10, 24) * s * fl * (1 + 0.5 * pk); Art.glow(c, p.x + ex * sc, p.y + ey * sc + rr * 0.3, rr, '#F0B070', 0.85); Art.glow(c, p.x + ex * sc, p.y + ey * sc, rr * 0.35, '#FFF4E4', 0.9); }
     c.restore();
     if (this.trailOn && p.trail && p.trail.length > 2) {
       const T = p.trail, n = T.length; c.save(); c.globalCompositeOperation = this.addMode; c.lineCap = 'round';
@@ -1503,16 +1802,24 @@ const Game = {
         c.fillStyle = g; c.beginPath(); L.forEach(([x, y], i) => i ? c.lineTo(x, y) : c.moveTo(x, y)); for (let i = Rr.length - 1; i >= 0; i--) c.lineTo(Rr[i][0], Rr[i][1]); c.closePath(); c.fill(); }
       c.restore();
     }
-    Art.flames(c, D, p.x, p.y, sc, t);
-    const veh = this.Wd.vehicle;
+    const O = this.outro, osc = O ? O.sc || 1 : 1, oa = O && O.a != null ? O.a : 1, orot = O ? O.rot || 0 : 0;
+    if (oa > 0.05) { c.save(); c.globalAlpha = oa; Art.flames(c, D, p.x, p.y, sc * osc, t); c.restore(); }
+    const veh = this.veh;
     if (veh === 'destroyer') { c.strokeStyle = 'rgba(235,242,246,.5)'; c.lineWidth = 2; const by = p.y - 94 * sc * 0.97; c.beginPath(); c.moveTo(p.x - 2, by); c.quadraticCurveTo(p.x - 22, by + 30, p.x - 26 - Math.sin(t * 6) * 2, by + 80); c.moveTo(p.x + 2, by); c.quadraticCurveTo(p.x + 22, by + 30, p.x + 26 + Math.sin(t * 6) * 2, by + 80); c.stroke(); }
     if (veh === 'nautSide' && vrnd() < 0.4) this.fx.push({ type: 'bubble', x: p.x - 150 * sc * 0.5 - 6, y: p.y + vrand(-4, 4), vx: vrand(-40, -10), vy: vrand(-40, -10), life: 0.9, max: 0.9, size: vrand(1.5, 3.5), col: '#DDF3F6' });
     if (veh === 'tank' && Math.abs(p.tx - p.x) > 4 && vrnd() < 0.3) this.fx.push({ type: 'puff', x: p.x + vrand(-40, 40), y: p.y + 22, vx: vrand(-20, 20), vy: -10, life: 0.6, max: 0.6, size: 5, grow: 1.6, col: '#4A4236', a: 0.4 });
-    const blink = p.inv > 0 && !this.cine && !this.uf && !this.outro && Math.floor(t * 18) % 2 === 0;
-    if (!blink) {
-      if (D.prop) { c.fillStyle = 'rgba(30,28,26,.2)'; c.beginPath(); c.ellipse(p.x, p.y + D.prop[1] * sc, D.prop[2] * sc, 2.5, 0, 0, TAU); c.fill(); }
-      Art.draw(c, this.pSpr, p.x, p.y, this.pW, top ? p.tilt * 0.6 : 0, false, 1, p.flash > 0 ? 0.8 : 0);
-    }
+    // invulnérable : vaisseau translucide qui pulse doucement (2,5 fois par seconde, plus de clignotement)
+    const blinkA = p.inv > 0 && !this.cine && !this.uf && !this.outro ? 0.6 + 0.3 * Math.sin(t * TAU * 2.5) : 1;
+    if (D.prop && oa > 0.5) { c.fillStyle = 'rgba(30,28,26,.2)'; c.beginPath(); c.ellipse(p.x, p.y + D.prop[1] * sc, D.prop[2] * sc, 2.5, 0, 0, TAU); c.fill(); }
+    if (top && !this.outro) {
+      // roulis vu de dessus : la silhouette s'amincit dans le virage et pivote à peine (le vaisseau penche, il ne tourne pas)
+      c.save(); c.translate(p.x, p.y); c.scale(1 - Math.abs(p.tilt) * 0.5, 1);
+      this.drawRim(c, 0, 0, p.tilt * 0.22 + orot, pk, oa * (blinkA < 1 ? 0.3 : 1));
+      Art.draw(c, this.pSpr, 0, 0, this.pW * osc, p.tilt * 0.22 + orot, false, blinkA * oa, p.flash > 0 ? 0.8 : 0);
+      if (this.upgL) Art.parts(c, this.pSpr, 0, 0, this.pW * osc, p.tilt * 0.22 + orot, this.upgL, blinkA * oa); c.restore();
+    } else { this.drawRim(c, p.x, p.y, (top ? p.tilt * 0.6 : 0) + orot, pk, oa * (blinkA < 1 ? 0.3 : 1)); Art.draw(c, this.pSpr, p.x, p.y, this.pW * osc, (top ? p.tilt * 0.6 : 0) + orot, false, blinkA * oa, p.flash > 0 ? 0.8 : 0); }
+    if (!this.outro && this.state !== 'end') this.drawCore(c, t);
+    this.drawDeathCam(c);
     const nd = this.mod('drones') + this.S.drone;
     for (let i = 0; i < nd; i++) { const [dx, dy] = this.dronePos(i, nd); Art.draw(c, 'p_drone', dx, dy, 20, p.tilt * 0.6); }
     if (this.mod('orbs')) { c.save(); c.globalCompositeOperation = this.addMode; for (const [ox, oy] of this.orbitPos()) { Art.glow(c, ox, oy, 14, '#BFE3F5', 0.6); c.fillStyle = '#F2FAFF'; c.beginPath(); c.moveTo(ox, oy - 6); c.lineTo(ox + 3.4, oy); c.lineTo(ox, oy + 6); c.lineTo(ox - 3.4, oy); c.closePath(); c.fill(); } c.restore(); }
@@ -1556,7 +1863,7 @@ const Game = {
     const p = this.p, hy = p.y + this.hitOff, rx = this.shRx, ry = this.shRy, f = p.spMax ? p.sp / p.spMax : 0;
     c.save();
     if (p.sp > 0) {
-      const st = f >= 0.999 ? 0 : f > 0.5 ? 1 : 2, fl = st === 2 && Math.sin(t * 31) > 0.35 ? 0.45 : 1;
+      const st = f >= 0.999 ? 0 : f > 0.5 ? 1 : 2, fl = st === 2 ? 0.72 + 0.28 * Math.sin(t * TAU * 1.5) : 1;
       const T = this.shieldTex(st); c.globalAlpha = Math.min(1, (0.45 + 0.55 * f) * fl + Math.max(0, p.shieldT) * 1.2);
       c.drawImage(T.cv, p.x - T.w / 2, hy - T.h / 2, T.w, T.h);
       if (st === 2) { c.globalAlpha = 0.25 * fl; c.strokeStyle = '#BFE8FF'; c.lineWidth = 1; c.setLineDash([8, 6, 3, 8]); c.beginPath(); c.ellipse(p.x + 2.5, hy - 1, rx + 1.5, ry + 1.5, 0, 0, TAU); c.stroke(); c.setLineDash([]); }

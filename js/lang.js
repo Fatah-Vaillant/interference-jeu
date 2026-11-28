@@ -23,12 +23,16 @@ const LANG = {
     'home.misAria': 'Mission {n}, {s} étoiles', 'home.misAriaLocked': 'Mission {n}, verrouillée', 'home.bossAria': 'Boss, {s} étoiles', 'home.bossAriaLocked': 'Boss, verrouillé',
     'home.launchMis': 'Lancer la mission {n}', 'home.launchBoss': 'Affronter le boss', 'home.play': 'Jouer', 'home.playMis': 'Mission {n}', 'home.playBoss': 'Boss', 'home.starsAria': '{n} étoiles sur 150', 'home.creditsAria': '{n} crédits',
     'veh.nautSide': 'en sous-marin', 'veh.tank': 'en char', 'veh.late': 'en avion postal', 'veh.destroyer': 'en destroyer',
+    'vehN.nautSide': 'Sous-marin', 'vehN.tank': 'Char', 'vehN.late': 'Avion postal', 'vehN.destroyer': 'Destroyer',
+    'craft.first': 'Ta première navette', 'craft.era': 'Véhicule d’époque', 'craft.yours': 'Ton vaisseau', 'craft.aria': 'Vaisseau : {name}. Toucher pour en changer', 'craft.ariaEra': 'Véhicule d’époque imposé : {name}',
+    'resume.tap': 'Touche l’écran pour reprendre',
+    'flashAsk.over': 'Avant de décoller', 'flashAsk.title': 'Éclairs lumineux', 'flashAsk.body': 'Le jeu contient des éclairs et des explosions lumineuses. Tu peux les adoucir maintenant, ou plus tard dans les réglages.', 'flashAsk.normal': 'Jouer normalement', 'flashAsk.calm': 'Réduire les flashs',
 
     /* ---------- briefing ---------- */
     'brief.skip': 'Passer', 'brief.next': 'Continuer', 'brief.jump': 'Sauter vers {name}', 'brief.B': 'Le Bureau', 'brief.A': 'Agent IF-50',
 
     /* ---------- hangar ---------- */
-    'hangar.title': 'Hangar', 'hangar.ships': 'Vaisseaux', 'hangar.upg': 'Améliorations',
+    'hangar.title': 'Hangar', 'hangar.ships': 'Vaisseaux', 'hangar.upg': 'Améliorations', 'hangar.upgShip': 'Améliorations · {name}', 'hangar.acc': 'Pour tous les vaisseaux', 'hangar.needShip': 'Achète d’abord ce vaisseau', 'hangar.lockShort': 'Verrouillé', 'hangar.passive': 'Capacité :',
     'hangar.equipped': 'Équipé', 'hangar.owned': 'Dans le hangar', 'hangar.endCampaign': 'Fin de campagne', 'hangar.price': '{n} crédits',
     'hangar.equip': 'Équiper', 'hangar.buy': 'Acheter · {n}', 'hangar.lockedOmega': 'Coupe la Source pour le débloquer', 'hangar.joined': '{name} rejoint ton hangar',
     'hangar.ult': 'Ultime : <b>{name}</b>', 'hangar.max': 'Max', 'hangar.prev': 'Vaisseau précédent', 'hangar.next': 'Vaisseau suivant', 'hangar.upgAria': '{name}, niveau {lv} sur {max}, {desc}',
@@ -64,7 +68,7 @@ const LANG = {
 
     /* ---------- en jeu ---------- */
     'hud.wave': 'Vague {n}', 'hud.waveOf': 'Vague {n} / {t}', 'hud.combo': 'Combo {n}', 'hud.lvl': 'Niv. {n}', 'hud.hp': '{n}/{t}', 'hud.hpAria': 'Coque : {n} points sur {t}', 'num.M': '{n} M', 'num.Md': '{n} Md', 'hud.ult': 'Ultime', 'hud.onde': 'Onde',
-    'hint.moveTouch': 'Glisse le doigt pour bouger · tir automatique', 'hint.moveMouse': 'Souris ou flèches pour bouger · tir automatique',
+    'hint.moveTouch': 'Glisse le doigt pour piloter', 'hint.moveMouse': 'Souris ou flèches pour piloter',
     'hint.graze': 'Frôle les tirs ennemis pour charger l’onde',
     'hint.ondeTouch': 'Onde prête · touche ONDE', 'hint.ondeKey': 'Onde prête · touche E', 'hint.ultTouch': 'Ultime prêt · touche ULTIME', 'hint.ultKey': 'Ultime prêt · touche R',
     'game.escort': 'Escorte lourde', 'game.miniboss': 'Mini-boss', 'game.squad': 'Escadrille complète', 'game.squadCr': '+{n} crédits',
@@ -106,6 +110,23 @@ const LANG = {
     'wpn.swarm.name': 'Essaim', 'wpn.swarm.desc': 'Micro-missiles à tête chercheuse.',
 
     /* ---------- compétences ---------- */
+    'sk.fRico.name': 'Ricochet perçant', 'sk.fRico.desc': 'Les tirs traversent 2 ennemis de plus et ricochent vers le voisin.',
+    'sk.fSquad.name': 'Escadrille', 'sk.fSquad.desc': '2 drones de plus, et tous tirent deux fois plus vite.',
+    'sk.fStorm.name': 'Orage critique', 'sk.fStorm.desc': 'Les éclairs frappent 2 cibles de plus ; critiques +15 %.',
+    'sk.fCrown.name': 'Couronne d’éclats', 'sk.fCrown.desc': '2 boucliers rotatifs de plus ; chaque destruction projette 4 éclats de plus.',
+    'sk.fFrost.name': 'Éventail de givre', 'sk.fFrost.desc': '2 paires de tirs obliques de plus ; gel +12 %.',
+    'sk.fBlaze.name': 'Brasier', 'sk.fBlaze.desc': 'Dégâts +25 %, et +40 % de plus au-delà de 25 de combo.',
+    'sk.fWall.name': 'Rempart d’ondes', 'sk.fWall.desc': 'Une charge de bouclier de plus, rechargée ; l’Onde se charge 40 % plus vite.',
+    'sk.fPull.name': 'Attraction', 'sk.fPull.desc': 'Ramassage +100 % ; frôlements payés double et bonus de dégâts plus long.',
+    'fuse.done': 'Fusion', 'lvl.fusion': 'Fusion', 'lvl.fuseWith': 'Au max avec {n} : fusion {f}', 'lvl.fuseOf': '{a} + {b}',
+    'lvl.shield': 'Bouclier', 'lvl.weapon': 'Arme', 'lvl.hull': 'Coque',
+    'wpn.ultT': 'Forme ultime', 'wpnUlt.imp': 'Hélice', 'wpnUlt.plasma': 'Nova', 'wpnUlt.arc': 'Arc fourchu', 'wpnUlt.rail': 'Lance-rail', 'wpnUlt.swarm': 'Nuée',
+    'caps.ann': 'Capsule : {n}', 'caps.got': 'Capsule ouverte', 'caps.arm': 'Arme +2', 'caps.shield': 'Bouclier +1', 'caps.level': 'Compétence offerte',
+    'help.title': 'Coup de pouce', 'help.over': '{n} essais sur cette mission', 'help.sub': 'Choisis un avantage gratuit pour cette tentative.', 'help.shield': 'Bouclier +1', 'help.arm': 'Arme +1', 'help.none': 'Sans aide', 'help.bossEase': 'Boss allégé de {n} %',
+    'end.effort': 'Effort récompensé', 'end.farther': 'Plus loin que la dernière fois : {a} → {b}', 'end.prog': 'Mission accomplie à {n}', 'end.helpNext': 'Au prochain essai, un coup de pouce gratuit t’attend.', 'end.bossEase': 'Le boss sera un peu affaibli.', 'end.rankCr': 'Rang de pilote',
+    'rank.name': 'Rang {n}', 'rank.up': 'Rang {n} atteint : +{c} crédits', 'rank.xp': '+{n} XP', 'rank.next': '{x} / {t} XP',
+    'goal.title': 'Prochain objectif', 'goal.mission': 'Mission {n} à jouer', 'goal.boss': 'Abats {b} pour ouvrir la fréquence {n}', 'goal.ship': '{n} dans {c} crédits', 'goal.shipReady': '{n} t’attend au hangar', 'goal.fus': 'Fusions découvertes : {n} / {t}',
+    'home.complete': '{n} % du jeu', 'profile.rank': 'Rang de pilote', 'profile.trophies': 'Trophées de boss', 'trophy.unknown': 'Pas encore vaincu',
     'sk.rate.name': 'Cadence', 'sk.rate.desc': 'Tir 12 % plus rapide.',
     'sk.dmg.name': 'Puissance', 'sk.dmg.desc': 'Dégâts +15 %.',
     'sk.magnet.name': 'Aimant', 'sk.magnet.desc': 'Rayon de ramassage +60 %.',
@@ -130,27 +151,34 @@ const LANG = {
     'sk.echo.name': 'Écho', 'sk.echo.desc': 'Un double te suit à 0,6 s et tire avec toi.',
 
     /* ---------- vaisseaux ---------- */
-    'ch.if50.name': 'Navette IF-50', 'ch.if50.origin': 'Bureau des fréquences', 'ch.if50.passive': 'Modeste. La première navette du Bureau.',
-    'ch.lame.name': 'Lame', 'ch.lame.origin': 'Prototype du Bureau', 'ch.lame.passive': 'Très rapide. +10 % de critiques.',
-    'ch.columbiad.name': 'Columbiad', 'ch.columbiad.origin': 'Jules Verne, 1865', 'ch.columbiad.passive': 'L’onde se charge 25 % plus vite.',
-    'ch.concorde.name': 'Concorde', 'ch.concorde.origin': 'Premier vol en 1969', 'ch.concorde.passive': 'Le plus rapide. Cadence +12 %.',
-    'ch.nautilus.name': 'Nautilus', 'ch.nautilus.origin': 'Jules Verne, 1870', 'ch.nautilus.passive': 'Tirs perforants dès le départ.',
-    'ch.bastion.name': 'Bastion', 'ch.bastion.origin': 'Prototype du Bureau', 'ch.bastion.passive': 'Blindé, lent. Démarre avec un drone.',
-    'ch.apollo.name': 'Apollo', 'ch.apollo.origin': 'Module de commande, 1969', 'ch.apollo.passive': 'L’ultime se charge 30 % plus vite.',
-    'ch.omega.name': 'Ω', 'ch.omega.origin': 'Après la fréquence zéro', 'ch.omega.passive': 'Débloqué en coupant la Source. Bonus partout.',
+    'ch.if50.name': 'Navette IF-50', 'ch.if50.origin': 'Bureau des fréquences', 'ch.if50.passive': 'Endurance : le bouclier se recharge 30 % plus vite.',
+    'ch.lame.name': 'Lame', 'ch.lame.origin': 'Prototype du Bureau', 'ch.lame.passive': 'Tranchant : +10 % de coups critiques.',
+    'ch.columbiad.name': 'Columbiad', 'ch.columbiad.origin': 'Jules Verne, 1865', 'ch.columbiad.passive': 'Poudre : l’Onde se charge 25 % plus vite.',
+    'ch.concorde.name': 'Concorde', 'ch.concorde.origin': 'Premier vol en 1969', 'ch.concorde.passive': 'Supersonique : frôle de plus loin, chaque frôlement charge 60 % de plus.',
+    'ch.nautilus.name': 'Nautilus', 'ch.nautilus.origin': 'Jules Verne, 1870', 'ch.nautilus.passive': 'Plongée : tirs perforants, et traverse les tirs 1,5 s après l’Onde.',
+    'ch.bastion.name': 'Bastion', 'ch.bastion.origin': 'Prototype du Bureau', 'ch.bastion.passive': 'Escorte : un drone d’appui dès le départ.',
+    'ch.apollo.name': 'Apollo', 'ch.apollo.origin': 'Module de commande, 1969', 'ch.apollo.passive': 'Saturne : l’Ultime se charge 30 % plus vite.',
+    'ch.omega.name': 'Ω', 'ch.omega.origin': 'Après la fréquence zéro', 'ch.omega.passive': 'Résonance : chaque Onde recharge aussi l’Ultime.',
 
     /* ---------- améliorations ---------- */
     'upg.hull.name': 'Bouclier', 'upg.hull.desc': 'Le champ de force encaisse un coup de plus',
-    'upg.cannon.name': 'Canon', 'upg.cannon.desc': 'Arme +1 niveau au départ, +5 %',
+    'upg.cannon.name': 'Puissance', 'upg.cannon.desc': 'Arme +1 niveau au départ, dégâts +5 %',
+    'upg.rate.name': 'Cadence', 'upg.rate.desc': 'Cadence de tir +6 %',
     'upg.onde.name': 'Onde', 'upg.onde.desc': 'Charge +15 %, rayon +10 %',
     'upg.ult.name': 'Ultime', 'upg.ult.desc': 'Charge de l’ultime +15 %',
     'upg.magnet.name': 'Aimant', 'upg.magnet.desc': 'Rayon de ramassage +25 %',
     'upg.credit.name': 'Prime', 'upg.credit.desc': 'Crédits +15 %',
 
     /* ---------- paliers infinis ---------- */
-    'tier.0.name': 'Hardcore', 'tier.0.desc': 'Tous les ennemis dès le départ, et ça accélère.',
-    'tier.1.name': 'Cauchemar', 'tier.1.desc': 'Un coup de bouclier en moins. Tout va plus vite.',
-    'tier.2.name': 'Ω', 'tier.2.desc': 'Sans bouclier. Aucune erreur.',
+    'tier.0.name': 'Normal', 'tier.0.desc': 'Pour apprendre : la cadence monte en douceur.',
+    'tier.1.name': 'Hardcore', 'tier.1.desc': 'Tous les ennemis dès le départ, et ça accélère.',
+    'tier.2.name': 'Cauchemar', 'tier.2.desc': 'Un coup de bouclier en moins. Tout va plus vite.',
+    'tier.3.name': 'Ω', 'tier.3.desc': 'Sans bouclier. Aucune erreur.',
+    'inf.tierLock': 'Atteins la vague {n} en {name}', 'inf.locked': 'Termine la fréquence 02 pour ouvrir l’Infini.',
+    'infAnn.over': 'Nouveau mode', 'infAnn.title': 'Infini', 'infAnn.body': 'Des vagues sans fin, de plus en plus dures. Tiens le plus longtemps possible : chaque palier franchi rapporte des crédits.', 'infAnn.go': 'Essayer', 'infAnn.later': 'Plus tard',
+    'end.infOpen': 'Nouveau mode : Infini', 'end.firstFlight': 'Prime de premier vol', 'end.upgFirst': 'Améliorer mon vaisseau', 'hangar.firstUpg': 'Ta première amélioration : {name}. Touche-la !',
+    'game.bossWarn': 'SIGNAL MAJEUR', 'game.bossWarnSub': 'Une forte interférence approche', 'game.comboLost': 'Combo perdu ({n})',
+    'tuto.onde': 'L’Onde efface les tirs : touche-la', 'tuto.ult': 'Ultime prêt : finis le gros vaisseau',
 
     /* ---------- ultimes ---------- */
     'ult.beam': 'Canon fréquence zéro', 'ult.blades': 'Mille lames', 'ult.orbital': 'Barrage orbital', 'ult.boom': 'Bang supersonique',
@@ -170,7 +198,7 @@ const LANG = {
     'w.bureau.fact': 'Une interférence, ce sont deux ondes qui s’additionnent… ou s’annulent.',
 
     'w.columbiad.name': 'De la Terre à la Lune', 'w.columbiad.label': 'Vers la Lune', 'w.columbiad.boss': 'L’Albatros',
-    'w.columbiad.pre': [['B', 'Floride, 1865. Un canon géant vise la Lune.'], ['A', 'Et le Bruit veut monter à bord ?'], ['B', 'Exactement.']],
+    'w.columbiad.pre': [['B', 'Floride, 1865. Un canon géant vise la Lune, et le Bruit veut monter à bord.'], ['A', 'Alors on décolle avec.']],
     'w.columbiad.post': 'Il replonge. Direction les abysses, 1870.',
     'w.columbiad.fact': 'Le module de commande d’Apollo 11 s’appelait Columbia, comme un écho au Columbiad de Jules Verne.',
 
@@ -185,7 +213,7 @@ const LANG = {
     'w.somme.fact': 'Le char Renault FT fut le premier char de série doté d’une tourelle pivotant sur 360°.',
 
     'w.aero.name': 'Aéropostale', 'w.aero.label': 'Dans les airs', 'w.aero.boss': 'Le Géant Do X',
-    'w.aero.pre': [['B', '1930. Le courrier doit passer.'], ['A', 'Même à travers la tempête ?'], ['B', 'Surtout à travers la tempête.']],
+    'w.aero.pre': [['B', '1930. Le courrier doit passer, même à travers la tempête.'], ['A', 'Surtout à travers la tempête.']],
     'w.aero.post': 'Il file vers l’Atlantique.',
     'w.aero.fact': 'En mai 1930, Jean Mermoz relie le Sénégal au Brésil en hydravion : première traversée postale de l’Atlantique Sud.',
 
@@ -215,12 +243,12 @@ const LANG = {
     'w.zero.fact': 'Des motifs girih du XVe siècle anticipent les pavages quasi périodiques décrits par Penrose en 1974.',
 
     'w.muet.name': 'Le Voyage', 'w.muet.label': 'Cinéma muet', 'w.muet.boss': 'La Lune de théâtre',
-    'w.muet.pre': [['B', 'La Source n’était pas seule. Un écho s’est glissé dans une bobine de 1902.'], ['A', 'Une bobine ? Sans le son ?'], ['B', 'Sans le son. Lis les cartons, et tire.']],
+    'w.muet.pre': [['B', 'Un écho du Bruit s’est glissé dans une bobine de 1902. Sans le son.'], ['A', 'Alors je lis les cartons, et je tire.']],
     'w.muet.post': 'Il saute hors de la pellicule… et se cache dans une maquette.',
     'w.muet.fact': 'En 1902, Georges Méliès tourne « Le Voyage dans la Lune », inspiré de Jules Verne : décors peints, fusées de carton et trucages.',
 
     'w.relief.name': 'Relief', 'w.relief.label': 'En maquette', 'w.relief.boss': 'La Citadelle',
-    'w.relief.pre': [['B', 'Dernier refuge : un plan-relief, une ville fortifiée en miniature.'], ['A', 'Et ses machines volantes de bois et de papier ?'], ['B', 'Parasitées. Surveille l’horizon : elles en surgissent.']],
+    'w.relief.pre': [['B', 'Dernier refuge : une ville fortifiée en miniature, et ses machines de bois et de papier parasitées.'], ['B', 'Surveille l’horizon : elles en surgissent.']],
     'w.relief.post': 'Dernière fréquence nettoyée. Le signal est pur.',
     'w.relief.fact': 'Les plans-reliefs, maquettes de villes fortifiées commencées en 1668 sous Louvois, sont conservés aux Invalides, à Paris.',
   },
